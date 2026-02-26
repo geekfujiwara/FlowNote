@@ -45,7 +45,7 @@ export default function FlowCanvas() {
       setEdges(newEdges)
       applyCanvasEdit(nodes, newEdges)
     },
-    [nodes, edges, applyCanvasEdit]
+    [nodes, edges, setEdges, applyCanvasEdit]
   )
 
   const handleNodesChange = (changes: NodeChange[]) => {
