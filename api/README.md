@@ -118,10 +118,64 @@ func start
 
 ## Deployment
 
-Assign the Function App's managed identity the following roles:
+### CI/CD via GitHub Actions
 
-- `Storage Blob Data Contributor` on the storage account
-- (SignalR uses a connection string — no role assignment needed)
+The repository uses OIDC (federated credentials) so GitHub Actions can deploy to your Azure subscription without storing long-lived secrets.
+
+#### 1. Create an Azure AD App Registration and federated credential
+
+```bash
+# Create app registration
+az ad app create --display-name "FlowNote GitHub Actions"
+
+# Note the appId (CLIENT_ID) from the output, then create a service principal
+az ad sp create --id <appId>
+
+# Assign Contributor role on the resource group
+az role assignment create \
+  --assignee <appId> \
+  --role Contributor \
+  --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<RESOURCE_GROUP>
+
+# Add a federated credential for the main branch
+az ad app federated-credential create \
+  --id <appId> \
+  --parameters '{
+    "name": "flownote-main",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:<GITHUB_ORG>/<REPO_NAME>:ref:refs/heads/main",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+
+#### 2. Add GitHub repository secrets
+
+In your repository go to **Settings → Secrets and variables → Actions** and add:
+
+| Secret | Value |
+|---|---|
+| `AZURE_CLIENT_ID` | App registration client ID (`appId`) |
+| `AZURE_TENANT_ID` | Azure AD tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | Azure subscription ID |
+| `AZURE_FUNCTIONAPP_NAME` | Name of your Azure Function App |
+
+#### 3. Assign roles to the Function App's managed identity
+
+```bash
+# Enable system-assigned managed identity on the Function App
+az functionapp identity assign \
+  --resource-group <rg> --name <app>
+
+# Assign Storage Blob Data Contributor to the managed identity
+az role assignment create \
+  --assignee <principalId> \
+  --role "Storage Blob Data Contributor" \
+  --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<storage>
+```
+
+The workflow in `.github/workflows/azure-functions-deploy.yml` runs automatically on every push to `main` that touches the `api/` directory, and can also be triggered manually via **Actions → Deploy Azure Functions → Run workflow**.
+
+### Manual deployment
 
 ```bash
 az functionapp deployment source config-zip \
