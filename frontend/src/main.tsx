@@ -27,7 +27,7 @@ msalInstance
     root.render(
       <React.StrictMode>
         <ErrorBoundary>
-          <App msalInstance={msalInstance} initError={error} />
+          <App initError={error} />
         </ErrorBoundary>
       </React.StrictMode>
     )

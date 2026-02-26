@@ -1,11 +1,9 @@
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from '@azure/msal-react'
-import type { PublicClientApplication } from '@azure/msal-browser'
 import { InteractionStatus } from '@azure/msal-browser'
 import AppLayout from './components/AppLayout'
 import LoginPage from './components/LoginPage'
 
 interface AppProps {
-  msalInstance?: PublicClientApplication
   initError?: unknown
 }
 
