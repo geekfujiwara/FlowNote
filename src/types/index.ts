@@ -101,3 +101,26 @@ export interface FlowNodeData extends Record<string, unknown> {
   isChanged?: boolean
   changeSource?: ChangeSource
 }
+
+// ─────────────────────────────────────────────
+// Template types
+// ─────────────────────────────────────────────
+
+export type TemplateCategory =
+  | 'analysis'
+  | 'planning'
+  | 'process'
+  | 'organization'
+
+export interface FlowTemplate {
+  id: string
+  name: string
+  description: string
+  emoji: string
+  color: string        // Tailwind bg color class for card accent
+  category: TemplateCategory
+  categoryLabel: string
+  initialMarkdown: string
+  systemPrompt: string
+  userPromptSuggestions: string[]
+}

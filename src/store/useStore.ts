@@ -14,6 +14,7 @@ import type {
 } from '@/types'
 import { parseFlowFromMarkdown } from '@/lib/flowParser'
 import { trackEvent } from '@/lib/appInsights'
+import { getTemplateById } from '@/lib/templates'
 import { applyDagreLayout } from '@/lib/dagLayout'
 import * as mockApi from '@/lib/mockApi'
 import { v4 as uuidv4 } from 'uuid'
@@ -61,6 +62,10 @@ export interface FlowNoteState {
   selectedNodeIds: string[]
   selectedEdgeIds: string[]
 
+  // Template
+  activeTemplateId: string | null
+  systemPrompt: string
+
   // Animations
   animateOnUpdate: boolean
   lastAppliedChange: LastAppliedChange | null
@@ -97,6 +102,10 @@ export interface FlowNoteState {
   // Tags
   setTags: (tags: string[]) => Promise<void>
 
+  // Template
+  applyTemplate: (templateId: string) => void
+  setSystemPrompt: (prompt: string) => void
+
   // Canvas editing
   applyCanvasEdit: (nodes: Node<FlowNodeData>[], edges: Edge[]) => void
   setCanvasMode: (mode: CanvasMode) => void
@@ -132,6 +141,8 @@ export const useStore = create<FlowNoteState>()(
     isSaving: false,
     isConnected: false,
     sidebarOpen: true,
+    activeTemplateId: null,
+    systemPrompt: '',
 
     // ─── parseAndLayout ─────────────────────
     parseAndLayout: (md) => {
@@ -426,6 +437,44 @@ export const useStore = create<FlowNoteState>()(
 
     setIsConnected: (v) => set({ isConnected: v }),
     setSidebarOpen: (v) => set({ sidebarOpen: v }),
+
+    // ─── setSystemPrompt ────────────────────
+    setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),
+
+    // ─── applyTemplate ──────────────────────
+    applyTemplate: (templateId) => {
+      const template = getTemplateById(templateId)
+      if (!template) return
+
+      const { parseAndLayout, newNote } = get()
+      newNote()
+
+      // Overwrite markdown and graph with template's initial content
+      const md = template.initialMarkdown
+      const { nodes, edges } = parseAndLayout(md)
+
+      set({
+        markdown: md,
+        nodes,
+        edges,
+        chatMessages: [],
+        pendingSuggestion: null,
+        activeTemplateId: templateId,
+        systemPrompt: template.systemPrompt,
+      })
+
+      // Persist the new note with template content
+      const { currentNote } = get()
+      if (currentNote) {
+        mockApi.saveNote({
+          id: currentNote.id,
+          title: template.name,
+          markdown: md,
+        }).then(() => get().listNotes())
+      }
+
+      trackEvent('template_applied', { templateId, templateName: template.name })
+    },
   }))
 )
 

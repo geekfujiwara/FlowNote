@@ -9,8 +9,12 @@ import {
   MessageSquare,
   Sparkles,
   Trash2,
+  LayoutTemplate,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import type { ChatMessage } from '@/types'
+import { getTemplateById } from '@/lib/templates'
 
 export function ChatPanel() {
   const chatMessages = useStore((s) => s.chatMessages)
@@ -19,9 +23,23 @@ export function ChatPanel() {
   const sendMessage = useStore((s) => s.sendMessageToAgent)
   const currentNote = useStore((s) => s.currentNote)
   const clearChatMessages = useStore((s) => s.clearChatMessages)
+  const activeTemplateId = useStore((s) => s.activeTemplateId)
+  const systemPrompt = useStore((s) => s.systemPrompt)
 
   const [input, setInput] = useState('')
+  const [systemPromptOpen, setSystemPromptOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+
+  const activeTemplate = activeTemplateId ? getTemplateById(activeTemplateId) : null
+
+  const SUGGESTIONS: string[] = activeTemplate
+    ? activeTemplate.userPromptSuggestions
+    : [
+        'レビューステップを追加して',
+        'フローをシンプルにして',
+        '並行処理フローに変更して',
+        '現在のフローを説明して',
+      ]
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -40,13 +58,6 @@ export function ChatPanel() {
       handleSend()
     }
   }
-
-  const SUGGESTIONS = [
-    'レビューステップを追加して',
-    'フローをシンプルにして',
-    '並行処理フローに変更して',
-    '現在のフローを説明して',
-  ]
 
   return (
     <div className="h-full flex flex-col bg-zinc-900 w-80">
@@ -70,6 +81,32 @@ export function ChatPanel() {
           </button>
         )}
       </div>
+
+      {/* Active template badge + system prompt */}
+      {activeTemplate && (
+        <div className="border-b border-zinc-800 bg-zinc-900/80 shrink-0">
+          <button
+            onClick={() => setSystemPromptOpen(!systemPromptOpen)}
+            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-800/50 transition-colors"
+          >
+            <LayoutTemplate className="w-3 h-3 text-indigo-400 shrink-0" />
+            <span className="text-[11px] text-indigo-300 flex-1 text-left truncate">
+              {activeTemplate.emoji} {activeTemplate.name}
+            </span>
+            {systemPromptOpen
+              ? <ChevronUp className="w-3 h-3 text-zinc-500" />
+              : <ChevronDown className="w-3 h-3 text-zinc-500" />
+            }
+          </button>
+          {systemPromptOpen && systemPrompt && (
+            <div className="px-3 pb-2">
+              <pre className="text-[10px] text-zinc-500 bg-zinc-800/60 rounded-lg p-2 border border-zinc-700 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
+                {systemPrompt}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">

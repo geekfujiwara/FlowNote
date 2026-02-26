@@ -6,8 +6,9 @@ import { FlowCanvas } from '@/components/canvas/FlowCanvas'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { VersionHistoryPanel } from '@/components/canvas/VersionHistoryPanel'
 import { FlowMetadataPanel } from '@/components/shared/FlowMetadataPanel'
-import { Bot, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2 } from 'lucide-react'
+import { Bot, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2, LayoutTemplate } from 'lucide-react'
 import { AnalyticsPanel } from '@/components/analytics/AnalyticsPanel'
+import { TemplateGallery } from '@/components/templates/TemplateGallery'
 import { useMsal } from '@azure/msal-react'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
@@ -20,14 +21,27 @@ export function AppLayout() {
   const isConnected = useStore((s) => s.isConnected)
   const isSaving = useStore((s) => s.isSaving)
   const currentNote = useStore((s) => s.currentNote)
+  const sendMessageToAgent = useStore((s) => s.sendMessageToAgent)
   const [chatOpen, setChatOpen] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('agent')
   const [rightPanel, setRightPanel] = useState<'chat' | 'history'>('chat')
   const [analyticsOpen, setAnalyticsOpen] = useState(false)
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
   const { accounts } = useMsal()
 
   const userName = USE_MOCK ? 'Demo User' : (accounts[0]?.name ?? accounts[0]?.username ?? 'User')
   const isAgentMode = viewMode === 'agent'
+
+  /** Called by TemplateGallery when user clicks "AIデザインで開始" */
+  const handleTemplateAiStart = (_templateId: string, prompt: string) => {
+    // Switch to agent mode so the chat is visible
+    setViewMode('agent')
+    setRightPanel('chat')
+    // Small delay to let the template state settle before sending
+    setTimeout(() => {
+      sendMessageToAgent(prompt)
+    }, 150)
+  }
 
   return (
     <div className="h-screen flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
@@ -112,6 +126,15 @@ export function AppLayout() {
               <MessageSquare className="w-4 h-4" />
             </button>
           )}
+
+          {/* Template gallery button */}
+          <button
+            onClick={() => setTemplateGalleryOpen(true)}
+            className="p-1.5 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 transition-colors"
+            title="テンプレートから開始"
+          >
+            <LayoutTemplate className="w-4 h-4" />
+          </button>
 
           {/* Analytics button */}
           <button
@@ -243,6 +266,14 @@ export function AppLayout() {
 
       {/* Analytics overlay */}
       {analyticsOpen && <AnalyticsPanel onClose={() => setAnalyticsOpen(false)} />}
+
+      {/* Template gallery overlay */}
+      {templateGalleryOpen && (
+        <TemplateGallery
+          onClose={() => setTemplateGalleryOpen(false)}
+          onAiStart={handleTemplateAiStart}
+        />
+      )}
     </div>
   )
 }
