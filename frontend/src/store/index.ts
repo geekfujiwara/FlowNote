@@ -204,7 +204,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const flowMd = flowToMarkdown(nodes, edges)
     const { markdown } = get()
     const updated = markdown.includes('```flow')
-      ? markdown.replace(/```flow[\s\S]*?```/g, flowMd)
+      ? markdown.replace(/```flow[\s\S]*?```/, flowMd)
       : markdown + '\n\n' + flowMd
     set({ markdown: updated, flow: { nodes, edges } })
   },

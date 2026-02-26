@@ -10,9 +10,10 @@ export default function Sidebar({ getToken }: SidebarProps) {
   const { notes, currentNote, listNotes, loadNote, deleteNote } = useAppStore()
   const [search, setSearch] = useState('')
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     listNotes(getToken)
-  }, [])
+  }, []) // intentionally run once on mount
 
   const filtered = notes.filter((n) =>
     n.title.toLowerCase().includes(search.toLowerCase())
