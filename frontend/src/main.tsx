@@ -34,11 +34,12 @@ function renderApp(initError?: unknown) {
   }
 }
 
+let timeoutId: ReturnType<typeof setTimeout>
 const initPromise = msalInstance.initialize()
-const timeoutPromise = new Promise<never>((_, reject) =>
-  setTimeout(() => reject(new Error('Authentication initialization timed out.')), MSAL_INIT_TIMEOUT_MS)
-)
+const timeoutPromise = new Promise<never>((_, reject) => {
+  timeoutId = setTimeout(() => reject(new Error('Authentication initialization timed out.')), MSAL_INIT_TIMEOUT_MS)
+})
 
 Promise.race([initPromise, timeoutPromise])
-  .then(() => renderApp())
-  .catch((error) => renderApp(error))
+  .then(() => { clearTimeout(timeoutId); renderApp() })
+  .catch((error) => { clearTimeout(timeoutId); renderApp(error) })
