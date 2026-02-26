@@ -50,6 +50,7 @@ export function NoteListItem({ note, isActive, onSelect, onDelete }: Props) {
 
       {/* Context menu trigger */}
       <button
+        aria-label="メニューを開く"
         className={`shrink-0 p-1 rounded-md transition-opacity ${
           menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
         } hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100`}

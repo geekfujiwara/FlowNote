@@ -248,6 +248,7 @@ export function AppLayout() {
                     <span className="text-sm font-semibold text-zinc-200">ノート一覧</span>
                     <button
                       onClick={() => setSidebarOpen(false)}
+                      aria-label="サイドバーを閉じる"
                       className="p-1 rounded hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 transition-colors"
                     >
                       <X className="w-4 h-4" />
