@@ -1,18 +1,19 @@
 import type { Node, Edge } from '@xyflow/react'
 
 function nodeToSyntax(node: Node): string {
-  const label = (node.data?.label as string) || node.id
+  const id = node.id ?? ''
+  const label = (node.data?.label as string) || id
   const nodeType = (node.data?.nodeType as string) || 'default'
-  const labelPart = label !== node.id ? ` ${label}` : ''
+  const labelPart = label !== id ? ` ${label}` : ''
   switch (nodeType) {
     case 'input':
-      return `[[${node.id}]]${labelPart}`
+      return `[[${id}]]${labelPart}`
     case 'output':
-      return `((${node.id}))${labelPart}`
+      return `((${id}))${labelPart}`
     case 'selector':
-      return `{${node.id}}${labelPart}`
+      return `{${id}}${labelPart}`
     default:
-      return `[${node.id}]${labelPart}`
+      return `[${id}]${labelPart}`
   }
 }
 

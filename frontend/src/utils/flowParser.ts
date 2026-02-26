@@ -27,6 +27,7 @@ function applyDagreLayout(nodes: Node[], edges: Edge[]): Node[] {
 }
 
 export function parseFlowMarkdown(markdown: string): { nodes: Node[]; edges: Edge[] } {
+  if (typeof markdown !== 'string') return { nodes: [], edges: [] }
   const flowBlockRegex = /```flow\n([\s\S]*?)```/g
   const nodes: Node[] = []
   const edges: Edge[] = []

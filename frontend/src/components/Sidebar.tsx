@@ -16,7 +16,7 @@ export default function Sidebar({ getToken }: SidebarProps) {
   }, []) // intentionally run once on mount
 
   const filtered = notes.filter((n) =>
-    n.title.toLowerCase().includes(search.toLowerCase())
+    (n.title ?? '').toLowerCase().includes(search.toLowerCase())
   )
 
   const handleNewNote = () => {

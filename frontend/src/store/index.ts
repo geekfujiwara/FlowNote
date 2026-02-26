@@ -82,7 +82,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isConnected: false,
 
   setMarkdown: (md) => {
-    set({ markdown: md })
+    set({ markdown: typeof md === 'string' ? md : '' })
     get().parseAndLayout()
   },
 
@@ -118,7 +118,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadNote: async (id, getToken) => {
     try {
       const data = await apiFetch(`/api/load/${id}`, { method: 'GET' }, getToken)
-      set({ currentNote: data, markdown: data.markdown || '' })
+      set({ currentNote: data, markdown: typeof data?.markdown === 'string' ? data.markdown : '' })
       get().parseAndLayout()
     } catch {
       // ignore
@@ -228,9 +228,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   applyCanvasEdit: (nodes, edges) => {
     const flowMd = flowToMarkdown(nodes, edges)
     const { markdown } = get()
-    const updated = markdown.includes('```flow')
-      ? markdown.replace(/```flow[\s\S]*?```/, flowMd)
-      : markdown + '\n\n' + flowMd
+    const md = typeof markdown === 'string' ? markdown : ''
+    const updated = md.includes('```flow')
+      ? md.replace(/```flow[\s\S]*?```/, flowMd)
+      : md + '\n\n' + flowMd
     set({ markdown: updated, flow: { nodes, edges } })
   },
 
