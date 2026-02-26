@@ -12,5 +12,10 @@ export const msalConfig: Configuration = {
 }
 
 export const loginRequest: PopupRequest = {
-  scopes: ['openid', 'profile', 'email', import.meta.env.VITE_API_SCOPE || 'api://placeholder/access_as_user'],
+  scopes: [
+    'openid',
+    'profile',
+    'email',
+    ...(import.meta.env.VITE_API_SCOPE ? [import.meta.env.VITE_API_SCOPE] : []),
+  ],
 }
