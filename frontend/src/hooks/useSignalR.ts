@@ -5,6 +5,7 @@ import { useAppStore } from '../store'
 export function useSignalR(getToken: () => Promise<string>) {
   const onRemoteUpdate = useAppStore((s) => s.onRemoteUpdate)
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const connection = new signalR.HubConnectionBuilder()
       .withUrl('/api/negotiate', {
