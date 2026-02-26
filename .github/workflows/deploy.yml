@@ -5,7 +5,10 @@
 # Required GitHub Secrets:
 #   AZURE_CREDENTIALS                 – Service principal JSON
 #   AZURE_STATIC_WEB_APPS_API_TOKEN   – From 'infra-deploy' workflow output
-#   VITE_API_BASE_URL                 – Functions URL (e.g. https://flownote-prod-func.azurewebsites.net)
+#   VITE_API_BASE_URL                 – Functions URL
+#
+# If secrets are not yet configured (infra not provisioned), the deploy
+# steps are skipped gracefully – the build step always runs as a CI check.
 # ============================================================
 name: Deploy Application
 
@@ -24,12 +27,43 @@ env:
 
 jobs:
   # ────────────────────────────────────────────────────────────
-  # Job 1: Build & Deploy Frontend to Static Web Apps
+  # Job 0: Check which secrets are configured
   # ────────────────────────────────────────────────────────────
-  deploy-frontend:
-    name: Frontend → Azure Static Web Apps
+  check-secrets:
+    name: Check secrets availability
     runs-on: ubuntu-latest
+    outputs:
+      has_swa_token: ${{ steps.check.outputs.has_swa_token }}
+      has_azure_creds: ${{ steps.check.outputs.has_azure_creds }}
+    steps:
+      - name: Check
+        id: check
+        env:
+          SWA_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          AZURE_CREDS: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          if [ -n "$SWA_TOKEN" ]; then
+            echo "has_swa_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_swa_token=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AZURE_STATIC_WEB_APPS_API_TOKEN is not set – SWA deployment will be skipped."
+          fi
+          if [ -n "$AZURE_CREDS" ]; then
+            echo "has_azure_creds=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_azure_creds=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::AZURE_CREDENTIALS is not set – Functions deployment will be skipped."
+          fi
 
+  # ────────────────────────────────────────────────────────────
+  # Job 1: Build frontend (always runs as CI check)
+  # ────────────────────────────────────────────────────────────
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    needs: check-secrets
+    outputs:
+      can_deploy: ${{ needs.check-secrets.outputs.has_swa_token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,7 +77,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
+      - name: Run tests
+        run: npm test -- --run
+
+      - name: Build (production)
+        if: ${{ needs.check-secrets.outputs.has_swa_token == 'true' }}
         env:
           VITE_USE_MOCK_API: 'false'
           VITE_USE_MOCK_AGENT: 'false'
@@ -51,6 +89,40 @@ jobs:
           VITE_AGENT_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.VITE_APPINSIGHTS_CONNECTION_STRING }}
         run: npm run build
+
+      - name: Build (mock mode – infra not provisioned)
+        if: ${{ needs.check-secrets.outputs.has_swa_token != 'true' }}
+        env:
+          VITE_USE_MOCK_API: 'true'
+          VITE_USE_MOCK_AGENT: 'true'
+        run: npm run build
+
+      - name: Upload build artifact
+        if: ${{ needs.check-secrets.outputs.has_swa_token == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────
+  # Job 2: Deploy Frontend to Static Web Apps
+  # ────────────────────────────────────────────────────────────
+  deploy-frontend:
+    name: Frontend → Azure Static Web Apps
+    runs-on: ubuntu-latest
+    needs: [check-secrets, build-frontend]
+    if: ${{ needs.check-secrets.outputs.has_swa_token == 'true' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
 
       - name: Deploy to Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
@@ -60,14 +132,16 @@ jobs:
           action: upload
           app_location: '/'
           output_location: 'dist'
-          skip_app_build: true   # already built above with env vars
+          skip_app_build: true
 
   # ────────────────────────────────────────────────────────────
-  # Job 2: Deploy Backend to Azure Functions
+  # Job 3: Deploy Backend to Azure Functions
   # ────────────────────────────────────────────────────────────
   deploy-backend:
     name: Backend → Azure Functions
     runs-on: ubuntu-latest
+    needs: check-secrets
+    if: ${{ needs.check-secrets.outputs.has_azure_creds == 'true' }}
 
     steps:
       - name: Checkout
