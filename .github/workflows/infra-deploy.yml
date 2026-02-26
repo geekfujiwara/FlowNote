@@ -1,0 +1,108 @@
+# ============================================================
+# FlowNote – Infrastructure Deployment
+# Run manually from GitHub Actions tab to provision Azure resources.
+# After first run, copy the outputs into GitHub Secrets.
+# ============================================================
+name: Deploy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - prod
+          - staging
+      location:
+        description: 'Azure region'
+        required: true
+        default: 'japaneast'
+
+env:
+  RESOURCE_GROUP: rg-flownote
+  SUBSCRIPTION_ID: d0b22a7f-8129-4a0d-bd5a-e8af107be62b
+
+jobs:
+  deploy-infra:
+    name: Provision Azure Resources
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          enable-AzPSSession: false
+
+      - name: Create Resource Group
+        run: |
+          az group create \
+            --name ${{ env.RESOURCE_GROUP }} \
+            --location ${{ github.event.inputs.location }} \
+            --subscription ${{ env.SUBSCRIPTION_ID }} \
+            --tags project=FlowNote env=${{ github.event.inputs.environment }}
+
+      - name: Deploy Bicep
+        id: bicep
+        run: |
+          OUTPUT=$(az deployment group create \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --subscription ${{ env.SUBSCRIPTION_ID }} \
+            --template-file infra/main.bicep \
+            --parameters \
+              prefix=flownote \
+              environment=${{ github.event.inputs.environment }} \
+              location=${{ github.event.inputs.location }} \
+            --query "properties.outputs" \
+            --output json)
+
+          echo "bicep_outputs=$OUTPUT" >> $GITHUB_OUTPUT
+
+          FUNC_URL=$(echo $OUTPUT | jq -r '.functionAppUrl.value')
+          FUNC_NAME=$(echo $OUTPUT | jq -r '.functionAppName.value')
+          SWA_NAME=$(echo $OUTPUT | jq -r '.staticWebAppName.value')
+          SWA_HOST=$(echo $OUTPUT | jq -r '.staticWebAppHostname.value')
+
+          echo "func_url=$FUNC_URL" >> $GITHUB_OUTPUT
+          echo "func_name=$FUNC_NAME" >> $GITHUB_OUTPUT
+          echo "swa_name=$SWA_NAME" >> $GITHUB_OUTPUT
+          echo "swa_host=$SWA_HOST" >> $GITHUB_OUTPUT
+
+      - name: Get Static Web App Deployment Token
+        id: swa_token
+        run: |
+          TOKEN=$(az staticwebapp secrets list \
+            --name ${{ steps.bicep.outputs.swa_name }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.apiKey" \
+            --output tsv)
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Print Next Steps
+        run: |
+          echo "=============================================="
+          echo "✅ Infrastructure deployed successfully!"
+          echo "=============================================="
+          echo ""
+          echo "📋 Add these secrets to GitHub repository:"
+          echo "   Settings > Secrets and variables > Actions > New repository secret"
+          echo ""
+          echo "  AZURE_STATIC_WEB_APPS_API_TOKEN = (shown once below – store safely)"
+          echo "  VITE_API_BASE_URL = ${{ steps.bicep.outputs.func_url }}"
+          echo ""
+          echo "🔑 SWA Deployment Token:"
+          echo "${{ steps.swa_token.outputs.token }}"
+          echo ""
+          echo "🌐 Frontend URL: https://${{ steps.bicep.outputs.swa_host }}"
+          echo "⚡ Functions URL: ${{ steps.bicep.outputs.func_url }}"
+          echo ""
+          echo "⚠️  Also set OPENAI_API_KEY in Azure Portal:"
+          echo "  Function App > Configuration > Application settings"
+          echo "=============================================="

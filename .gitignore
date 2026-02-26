@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Environment
+.env.local
+.env.*.local
+
+# Azure Functions - contains API keys, never commit
+backend/local.settings.json
+
+# Python
+__pycache__/
+*.py[cod]
+.python_packages/
+.venv/
+venv/
+
+# Azure deployment package
+*.zip
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+
+# Editor
+.vscode/
+*.suo
+*.njsproj
+*.sln
+.DS_Store
+Thumbs.db

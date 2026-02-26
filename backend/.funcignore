@@ -1,0 +1,10 @@
+# Files / folders excluded from Azure Functions deployment
+local.settings.json
+.venv
+venv
+__pycache__
+*.pyc
+.env
+.env.*
+tests/
+*.test.py

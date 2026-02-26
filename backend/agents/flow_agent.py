@@ -1,0 +1,395 @@
+"""
+FlowNote AI – Agent Framework Python backend.
+
+Uses Microsoft Agent Framework (agent-framework package) to interpret user
+requests and produce structured Suggestion objects for the FlowNote frontend.
+
+Required env vars (set ONE of the two providers):
+
+  Azure OpenAI (recommended):
+    AZURE_OPENAI_ENDPOINT         e.g. https://my-resource.openai.azure.com
+    AZURE_OPENAI_DEPLOYMENT_NAME  default: gpt-4o-mini
+    AZURE_OPENAI_API_KEY          optional; omit to use DefaultAzureCredential
+    AZURE_OPENAI_API_VERSION      default: 2025-01-01-preview
+
+  OpenAI:
+    OPENAI_API_KEY
+    OPENAI_MODEL                  default: gpt-4o-mini
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import uuid
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────
+# System prompt
+# ─────────────────────────────────────────────────────────────
+
+SYSTEM_PROMPT = """You are FlowNote AI, a flowchart design assistant embedded in the FlowNote application.
+Users write notes in Markdown that contain ```flow code blocks describing flowcharts.
+Your job is to understand the user's intent and return an updated version of the Markdown.
+
+## Flow Syntax
+- `[[id]] Label`        → input node (rounded, start)
+- `((id)) Label`        → output node (rounded, end)
+- `{id} Label`          → selector node (diamond, decision/branch)
+- `[id] Label`          → default node (rectangle, process step)
+- `[source] -> [target]`         → directed edge (always use plain [id] brackets)
+- `[source] -> [target] : Label` → edge with label
+- Node ID rules: lowercase alphanumeric, hyphens allowed, NO spaces
+- Edge rules: ALWAYS use plain `[id]` format for both source and target.
+  NEVER write `[[id]] -> [id]` or `[id] -> ((id))` in edge lines.
+
+## Tools at your disposal
+You can call these tools to manipulate the flow:
+- add_node: add a new node to the flow
+- remove_node: remove a node and its connected edges
+- add_edge: connect two existing nodes
+- remove_edge: remove a connection between two nodes
+- replace_flow: completely replace the nodes and edges
+
+## Output format
+After applying the requested changes, respond with ONLY a valid JSON object (no surrounding markdown, no explanation):
+{
+  "markdown": "<full updated Markdown, including the title and updated ```flow block>",
+  "summary": "<Japanese: concise description of what was changed (1-2 sentences)>",
+  "nodesDelta": <integer: positive = nodes added, negative = removed>,
+  "edgesDelta": <integer: positive = edges added, negative = removed>,
+  "changedNodeIds": ["<node id>", ...],
+  "changedEdgeIds": ["<e-source-target>", ...]
+}
+
+If the user's message is unclear or no change is needed, return the original markdown unchanged with nodesDelta=0.
+"""
+
+
+# ─────────────────────────────────────────────────────────────
+# Agent factory
+# ─────────────────────────────────────────────────────────────
+
+def _create_agent() -> Any:  # type: AIAgent
+    """Build and return an Agent Framework AIAgent from environment variables."""
+    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+
+    if azure_endpoint:
+        from agent_framework.azure import AzureOpenAIResponsesClient  # type: ignore
+
+        deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
+        api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
+
+        if api_key:
+            client = AzureOpenAIResponsesClient(
+                endpoint=azure_endpoint,
+                deployment_name=deployment,
+                api_key=api_key,
+                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
+            )
+        else:
+            # Passwordless: uses az login / managed identity
+            from azure.identity import DefaultAzureCredential  # type: ignore
+
+            client = AzureOpenAIResponsesClient(
+                endpoint=azure_endpoint,
+                deployment_name=deployment,
+                credential=DefaultAzureCredential(),
+                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
+            )
+
+    elif openai_key:
+        from agent_framework.openai import OpenAIResponsesClient  # type: ignore
+
+        client = OpenAIResponsesClient(
+            api_key=openai_key,
+            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+        )
+
+    else:
+        raise RuntimeError(
+            "LLM provider not configured. "
+            "Set AZURE_OPENAI_ENDPOINT (and optionally AZURE_OPENAI_API_KEY) "
+            "or OPENAI_API_KEY in local.settings.json."
+        )
+
+    return client.as_agent(
+        name="FlowNoteAgent",
+        instructions=SYSTEM_PROMPT,
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# Tools (stateful plugin – holds flow state during a single run)
+# ─────────────────────────────────────────────────────────────
+
+class FlowEditorPlugin:
+    """
+    Agent Framework tools that let the agent manipulate the flow.
+    The plugin holds mutable `nodes` and `edges` lists.
+    """
+
+    def __init__(self, nodes: list[dict], edges: list[dict]) -> None:
+        self.nodes: list[dict] = nodes
+        self.edges: list[dict] = edges
+        self._edge_counter: int = len(edges)
+
+    # ── helpers ──────────────────────────────────────────────
+
+    def _node_index(self, node_id: str) -> int | None:
+        for i, n in enumerate(self.nodes):
+            if n["id"] == node_id:
+                return i
+        return None
+
+    def _edge_key(self, source: str, target: str) -> str:
+        return f"e-{source}-{target}"
+
+    # ── tool methods ─────────────────────────────────────────
+
+    def add_node(
+        self,
+        node_id: str,
+        label: str,
+        node_type: str = "default",
+    ) -> str:
+        """Add a new node to the flow diagram.
+
+        Args:
+            node_id: Unique identifier (lowercase, no spaces).
+            label: Display label shown inside the node.
+            node_type: One of 'default', 'input', 'output', 'selector'.
+        """
+        if self._node_index(node_id) is not None:
+            return f"Node '{node_id}' already exists."
+        self.nodes.append({"id": node_id, "label": label, "type": node_type})
+        return f"Added {node_type} node '{node_id}' ({label})."
+
+    def remove_node(self, node_id: str) -> str:
+        """Remove a node and all edges connected to it.
+
+        Args:
+            node_id: ID of the node to remove.
+        """
+        idx = self._node_index(node_id)
+        if idx is None:
+            return f"Node '{node_id}' not found."
+        self.nodes.pop(idx)
+        before = len(self.edges)
+        self.edges = [
+            e for e in self.edges
+            if e["source"] != node_id and e["target"] != node_id
+        ]
+        removed_edges = before - len(self.edges)
+        return f"Removed node '{node_id}' and {removed_edges} connected edge(s)."
+
+    def add_edge(self, source: str, target: str, label: str = "") -> str:
+        """Add a directed edge between two nodes.
+
+        Args:
+            source: Source node ID.
+            target: Target node ID.
+            label: Optional label on the edge.
+        """
+        # Auto-create missing nodes as implicit defaults
+        for nid in (source, target):
+            if self._node_index(nid) is None:
+                self.nodes.append({"id": nid, "label": nid, "type": "default"})
+        self._edge_counter += 1
+        edge: dict = {
+            "id": self._edge_key(source, target),
+            "source": source,
+            "target": target,
+        }
+        if label:
+            edge["label"] = label
+        self.edges.append(edge)
+        return f"Added edge {source} → {target}" + (f" : {label}" if label else "") + "."
+
+    def remove_edge(self, source: str, target: str) -> str:
+        """Remove an edge between two nodes.
+
+        Args:
+            source: Source node ID.
+            target: Target node ID.
+        """
+        before = len(self.edges)
+        self.edges = [
+            e for e in self.edges
+            if not (e["source"] == source and e["target"] == target)
+        ]
+        if len(self.edges) == before:
+            return f"Edge {source} → {target} not found."
+        return f"Removed edge {source} → {target}."
+
+    def replace_flow(self, nodes_json: str, edges_json: str) -> str:
+        """Completely replace the flow with a new set of nodes and edges.
+
+        Args:
+            nodes_json: JSON array of node objects with id, label, type.
+            edges_json: JSON array of edge objects with source, target, and optional label.
+        """
+        self.nodes = json.loads(nodes_json)
+        self.edges = json.loads(edges_json)
+        return f"Replaced flow: {len(self.nodes)} nodes, {len(self.edges)} edges."
+
+
+# ─────────────────────────────────────────────────────────────
+# Flow serialisation helpers
+# ─────────────────────────────────────────────────────────────
+
+def _serialize_node(n: dict) -> str:
+    nid, label, ntype = n["id"], n.get("label", n["id"]), n.get("type", "default")
+    match ntype:
+        case "input":    return f"[[{nid}]] {label}"
+        case "output":   return f"(({nid})) {label}"
+        case "selector": return f"{{{nid}}} {label}"
+        case _:          return f"[{nid}] {label}"
+
+
+def _serialize_edge(e: dict) -> str:
+    base = f"[{e['source']}] -> [{e['target']}]"
+    return f"{base} : {e['label']}" if e.get("label") else base
+
+
+def _build_flow_block(nodes: list[dict], edges: list[dict]) -> str:
+    node_lines = [_serialize_node(n) for n in nodes]
+    edge_lines = [_serialize_edge(e) for e in edges]
+    return "```flow\n" + "\n".join(node_lines) + ("\n\n" if edge_lines else "") + "\n".join(edge_lines) + "\n```"
+
+
+# ─────────────────────────────────────────────────────────────
+# Parse existing ```flow block from Markdown
+# ─────────────────────────────────────────────────────────────
+
+_FLOW_RE = re.compile(r"```flow\r?\n([\s\S]*?)```")
+_NODE_PATTERNS = [
+    (re.compile(r"^\[\[(.+?)\]\]\s+(.+)$"),  "input"),
+    (re.compile(r"^\(\((.+?)\)\)\s+(.+)$"),  "output"),
+    (re.compile(r"^\{(.+?)\}\s+(.+)$"),       "selector"),
+    (re.compile(r"^\[(.+?)\]\s+(.+)$"),       "default"),
+]
+_EDGE_RE = re.compile(r"^\[(.+?)\]\s*->\s*\[(.+?)\](?:\s*:\s*(.+))?$")
+
+
+def _parse_flow(markdown: str) -> tuple[list[dict], list[dict]]:
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    seen_nodes: set[str] = set()
+    edge_n = 0
+
+    for block_match in _FLOW_RE.finditer(markdown):
+        for line in block_match.group(1).splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            em = _EDGE_RE.match(line)
+            if em:
+                src, tgt, lbl = em.group(1), em.group(2), em.group(3)
+                for nid in (src, tgt):
+                    if nid not in seen_nodes:
+                        nodes.append({"id": nid, "label": nid, "type": "default"})
+                        seen_nodes.add(nid)
+                edge: dict = {"id": f"e{edge_n}-{src}-{tgt}", "source": src, "target": tgt}
+                if lbl:
+                    edge["label"] = lbl.strip()
+                edges.append(edge)
+                edge_n += 1
+                continue
+            for pattern, ntype in _NODE_PATTERNS:
+                nm = pattern.match(line)
+                if nm:
+                    nid, lbl = nm.group(1), nm.group(2)
+                    if nid not in seen_nodes:
+                        nodes.append({"id": nid, "label": lbl, "type": ntype})
+                        seen_nodes.add(nid)
+                    break
+
+    return nodes, edges
+
+
+# ─────────────────────────────────────────────────────────────
+# Main entry point
+# ─────────────────────────────────────────────────────────────
+
+async def run_flow_agent(message: str, markdown: str) -> dict:
+    """
+    Run the Agent Framework agent and return a Suggestion dict compatible
+    with the FlowNote frontend's Suggestion TypeScript type.
+    """
+    # Parse current flow state so tools can operate on it
+    orig_nodes, orig_edges = _parse_flow(markdown)
+    plugin = FlowEditorPlugin(
+        nodes=[dict(n) for n in orig_nodes],
+        edges=[dict(e) for e in orig_edges],
+    )
+
+    agent = _create_agent()
+
+    # Register the plugin's tools with the agent
+    # Agent Framework uses `add_plugin` to expose instance methods as tools
+    agent.add_plugin(plugin, plugin_name="flow_editor")  # type: ignore[attr-defined]
+
+    user_prompt = (
+        f"<current_flow_markdown>\n{markdown}\n</current_flow_markdown>\n\n"
+        f"<user_request>\n{message}\n</user_request>\n\n"
+        "Apply the requested changes using the flow_editor tools, "
+        "then return the result as JSON."
+    )
+
+    logger.info("Running FlowNote agent | message=%r | nodes=%d edges=%d",
+                message, len(orig_nodes), len(orig_edges))
+
+    raw: str = str(await agent.run(user_prompt))
+
+    logger.debug("Agent raw response: %s", raw[:500])
+
+    # ── Extract JSON from response ────────────────────────────
+    # Strip markdown code fences that some models add around JSON
+    cleaned = re.sub(r"```(?:json)?\s*", "", raw)
+    cleaned = re.sub(r"```\s*$", "", cleaned, flags=re.MULTILINE)
+    json_match = re.search(r"\{[\s\S]*\}", cleaned)
+
+    if json_match:
+        data = json.loads(json_match.group())
+        updated_markdown = data.get("markdown", markdown)
+        summary = data.get("summary", "フローを更新しました。")
+        nodes_delta = int(data.get("nodesDelta", 0))
+        edges_delta = int(data.get("edgesDelta", 0))
+        changed_node_ids = data.get("changedNodeIds", [])
+        changed_edge_ids = data.get("changedEdgeIds", [])
+
+    else:
+        # Fallback: the agent manipulated the flow via tools, rebuild markdown
+        logger.warning("Could not parse JSON from agent response; rebuilding from tool state.")
+        flow_block = _build_flow_block(plugin.nodes, plugin.edges)
+
+        # Replace the ```flow block in the original markdown
+        updated_markdown = _FLOW_RE.sub(flow_block, markdown)
+        if updated_markdown == markdown and plugin.nodes != orig_nodes:
+            updated_markdown = markdown.rstrip() + "\n\n" + flow_block + "\n"
+
+        nodes_delta = len(plugin.nodes) - len(orig_nodes)
+        edges_delta = len(plugin.edges) - len(orig_edges)
+
+        orig_ids = {n["id"] for n in orig_nodes}
+        changed_node_ids = [n["id"] for n in plugin.nodes if n["id"] not in orig_ids]
+        changed_edge_ids = []
+        summary = "フローを更新しました。"
+
+    return {
+        "suggestionId": str(uuid.uuid4()),
+        "markdown": updated_markdown,
+        "summary": summary,
+        "impacts": {
+            "nodesDelta": nodes_delta,
+            "edgesDelta": edges_delta,
+            "changedNodeIds": changed_node_ids,
+            "changedEdgeIds": changed_edge_ids,
+        },
+    }

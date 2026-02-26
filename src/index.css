@@ -1,0 +1,235 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────
+   Base
+───────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─────────────────────────────────────────────
+   Custom scrollbar
+───────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #3f3f46;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #52525b;
+}
+
+/* ─────────────────────────────────────────────
+   @xyflow/react theme overrides
+───────────────────────────────────────────── */
+
+.react-flow__renderer {
+  background: #09090b !important;
+}
+
+.react-flow__edge-path {
+  stroke: #6366f1 !important;
+  stroke-width: 2 !important;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #a5b4fc !important;
+  stroke-width: 2.5 !important;
+}
+
+.react-flow__edge-text {
+  fill: #a1a1aa !important;
+  font-size: 11px !important;
+}
+
+.react-flow__arrowhead {
+  fill: #6366f1 !important;
+}
+
+.react-flow__controls button {
+  background: #27272a !important;
+  border-color: #3f3f46 !important;
+  color: #a1a1aa !important;
+}
+
+.react-flow__controls button:hover {
+  background: #3f3f46 !important;
+  color: #fff !important;
+}
+
+.react-flow__minimap {
+  background: #18181b !important;
+  border: 1px solid #3f3f46 !important;
+  border-radius: 8px !important;
+}
+
+/* ─────────────────────────────────────────────
+   Node animations
+───────────────────────────────────────────── */
+
+/* Fade + scale in (new node) */
+@keyframes nodeEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.react-flow__node {
+  animation: nodeEnter 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Highlight pulse (agent / remote / user changes) */
+@keyframes highlightPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
+  50%  { box-shadow: 0 0 0 8px rgba(99, 102, 241, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
+
+@keyframes highlightPulseAgent {
+  0%   { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.8); }
+  50%  { box-shadow: 0 0 0 10px rgba(168, 85, 247, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0); }
+}
+
+@keyframes highlightPulseRemote {
+  0%   { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0.8); }
+  50%  { box-shadow: 0 0 0 10px rgba(14, 165, 233, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(14, 165, 233, 0); }
+}
+
+.animate-pulse-once {
+  animation: highlightPulse 1.5s ease-out 1;
+}
+
+/* ─────────────────────────────────────────────
+   Edge draw animation
+───────────────────────────────────────────── */
+
+@keyframes edgeDraw {
+  from {
+    stroke-dashoffset: 1000;
+    opacity: 0;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.react-flow__edge-path {
+  stroke-dasharray: 1000;
+  animation: edgeDraw 0.4s ease-out forwards;
+}
+
+/* ─────────────────────────────────────────────
+   CodeMirror editor overrides
+───────────────────────────────────────────── */
+
+.cm-editor {
+  height: 100%;
+  background: #09090b !important;
+}
+
+.cm-scroller {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace !important;
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+}
+
+.cm-gutters {
+  background: #09090b !important;
+  border-right: 1px solid #27272a !important;
+}
+
+.cm-activeLineGutter {
+  background: #18181b !important;
+}
+
+.cm-activeLine {
+  background: rgba(99, 102, 241, 0.06) !important;
+}
+
+/* Highlight ```flow blocks */
+.cm-fencedCode {
+  background: rgba(99, 102, 241, 0.04);
+  border-left: 2px solid #6366f1;
+}
+
+/* ─────────────────────────────────────────────
+   Loading / transition utilities
+───────────────────────────────────────────── */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.25s ease-out;
+}
+
+/* ─────────────────────────────────────────────
+   Chat message animations
+───────────────────────────────────────────── */
+
+@keyframes messagePop {
+  0%   { opacity: 0; transform: scale(0.9) translateY(6px); }
+  60%  { transform: scale(1.02) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.chat-message {
+  animation: messagePop 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Node/Edge Inspector slide-up ──────────────────────────── */
+
+@keyframes slideUp {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes slideInLeft {
+  0%   { opacity: 0; transform: translateX(-100%); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
