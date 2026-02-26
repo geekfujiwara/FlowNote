@@ -4,14 +4,31 @@ import { PublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider } from '@azure/msal-react'
 import { msalConfig } from './authConfig'
 import App from './App'
+import ErrorBoundary from './components/ErrorBoundary'
 import './index.css'
 
 const msalInstance = new PublicClientApplication(msalConfig)
+const root = ReactDOM.createRoot(document.getElementById('root')!)
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <MsalProvider instance={msalInstance}>
-      <App />
-    </MsalProvider>
-  </React.StrictMode>
-)
+msalInstance
+  .initialize()
+  .then(() => {
+    root.render(
+      <React.StrictMode>
+        <ErrorBoundary>
+          <MsalProvider instance={msalInstance}>
+            <App />
+          </MsalProvider>
+        </ErrorBoundary>
+      </React.StrictMode>
+    )
+  })
+  .catch((error) => {
+    root.render(
+      <React.StrictMode>
+        <ErrorBoundary>
+          <App msalInstance={msalInstance} initError={error} />
+        </ErrorBoundary>
+      </React.StrictMode>
+    )
+  })
