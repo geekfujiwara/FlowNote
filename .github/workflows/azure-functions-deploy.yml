@@ -45,7 +45,8 @@ jobs:
 
       - name: Deploy to Azure Functions
         run: |
-          az functionapp deployment source config-zip \
+          az functionapp deploy \
             --name "${{ secrets.AZURE_FUNCTIONAPP_NAME }}" \
             --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
-            --src deploy.zip
+            --src-path deploy.zip \
+            --type zip
