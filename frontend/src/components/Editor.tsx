@@ -13,9 +13,12 @@ export default function Editor({ getToken }: EditorProps) {
   const historyRef = useRef<string[]>([])
   const historyIndexRef = useRef(-1)
 
+  const MAX_HISTORY = 100
+
   const handleChange = (value: string) => {
-    historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1)
-    historyRef.current.push(value)
+    const trimmed = historyRef.current.slice(0, historyIndexRef.current + 1)
+    trimmed.push(value)
+    historyRef.current = trimmed.length > MAX_HISTORY ? trimmed.slice(trimmed.length - MAX_HISTORY) : trimmed
     historyIndexRef.current = historyRef.current.length - 1
     setMarkdown(value)
   }

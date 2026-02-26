@@ -34,11 +34,10 @@ export default function FlowCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(flow.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(flow.edges)
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setNodes(flow.nodes)
     setEdges(flow.edges)
-  }, [flow.nodes, flow.edges])
+  }, [flow.nodes, flow.edges, setNodes, setEdges])
 
   const onConnect = useCallback(
     (params: Connection) => {
