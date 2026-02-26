@@ -7,12 +7,21 @@ import App from './App'
 import ErrorBoundary from './components/ErrorBoundary'
 import './index.css'
 
+const MSAL_INIT_TIMEOUT_MS = 10_000
+
 const msalInstance = new PublicClientApplication(msalConfig)
 const root = ReactDOM.createRoot(document.getElementById('root')!)
 
-msalInstance
-  .initialize()
-  .then(() => {
+function renderApp(initError?: unknown) {
+  if (initError) {
+    root.render(
+      <React.StrictMode>
+        <ErrorBoundary>
+          <App initError={initError} />
+        </ErrorBoundary>
+      </React.StrictMode>
+    )
+  } else {
     root.render(
       <React.StrictMode>
         <ErrorBoundary>
@@ -22,13 +31,15 @@ msalInstance
         </ErrorBoundary>
       </React.StrictMode>
     )
-  })
-  .catch((error) => {
-    root.render(
-      <React.StrictMode>
-        <ErrorBoundary>
-          <App initError={error} />
-        </ErrorBoundary>
-      </React.StrictMode>
-    )
-  })
+  }
+}
+
+let timeoutId: ReturnType<typeof setTimeout>
+const initPromise = msalInstance.initialize()
+const timeoutPromise = new Promise<never>((_, reject) => {
+  timeoutId = setTimeout(() => reject(new Error('Authentication initialization timed out.')), MSAL_INIT_TIMEOUT_MS)
+})
+
+Promise.race([initPromise, timeoutPromise])
+  .then(() => { clearTimeout(timeoutId); renderApp() })
+  .catch((error) => { clearTimeout(timeoutId); renderApp(error) })
