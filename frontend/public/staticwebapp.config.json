@@ -1,7 +1,7 @@
 {
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/*.ico", "/*.svg", "/*.css", "/*.js", "/*.wasm"]
+    "exclude": ["/assets/*", "/*.ico", "/*.svg", "/*.css", "/*.js", "/*.wasm", "/src/*"]
   },
   "mimeTypes": {
     ".js": "application/javascript",
