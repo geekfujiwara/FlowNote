@@ -69,6 +69,9 @@ vi.stubEnv('VITE_MSAL_CLIENT_ID', 'test-client-id')
 vi.stubEnv('VITE_MSAL_TENANT_ID', 'test-tenant-id')
 vi.stubEnv('VITE_MSAL_REDIRECT_URI', 'http://localhost:3000')
 
+// jsdom does not implement scrollIntoView – stub it globally
+window.HTMLElement.prototype.scrollIntoView = vi.fn()
+
 // Reset localStorage before each test
 beforeEach(() => {
   localStorage.clear()

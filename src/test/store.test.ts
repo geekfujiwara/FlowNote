@@ -21,6 +21,9 @@ function resetStore() {
     isSaving: false,
     isConnected: false,
     sidebarOpen: true,
+    activeTemplateId: null,
+    systemPrompt: '',
+    versionHistory: [],
   })
   localStorage.clear()
 }
@@ -268,5 +271,111 @@ describe('useStore – setIsConnected / setSidebarOpen', () => {
   it('setSidebarOpen で sidebarOpen が変わる', () => {
     act(() => { useStore.getState().setSidebarOpen(false) })
     expect(useStore.getState().sidebarOpen).toBe(false)
+  })
+})
+
+// ─────────────────────────────────────────────
+// Template – applyTemplate / setSystemPrompt
+// ─────────────────────────────────────────────
+
+import { TEMPLATES } from '@/lib/templates'
+
+describe('useStore – applyTemplate', () => {
+  beforeEach(() => {
+    resetStore()
+    localStorage.clear()
+  })
+
+  it('applyTemplate で activeTemplateId が設定される', () => {
+    act(() => { useStore.getState().applyTemplate('fishbone') })
+    expect(useStore.getState().activeTemplateId).toBe('fishbone')
+  })
+
+  it('applyTemplate で systemPrompt がテンプレートの値に設定される', () => {
+    const template = TEMPLATES.find((t) => t.id === 'fishbone')!
+    act(() => { useStore.getState().applyTemplate('fishbone') })
+    expect(useStore.getState().systemPrompt).toBe(template.systemPrompt)
+  })
+
+  it('applyTemplate で markdown がテンプレートの initialMarkdown に設定される', () => {
+    const template = TEMPLATES.find((t) => t.id === 'fishbone')!
+    act(() => { useStore.getState().applyTemplate('fishbone') })
+    expect(useStore.getState().markdown).toBe(template.initialMarkdown)
+  })
+
+  it('applyTemplate で currentNote が生成される', () => {
+    act(() => { useStore.getState().applyTemplate('swot') })
+    expect(useStore.getState().currentNote).not.toBeNull()
+  })
+
+  it('applyTemplate で chatMessages がリセットされる', () => {
+    act(() => {
+      useStore.setState({ chatMessages: [{ id: '1', role: 'user', content: 'x', timestamp: '' }] })
+      useStore.getState().applyTemplate('mindmap')
+    })
+    expect(useStore.getState().chatMessages).toHaveLength(0)
+  })
+
+  it('applyTemplate で pendingSuggestion がリセットされる', () => {
+    act(() => {
+      useStore.setState({
+        pendingSuggestion: {
+          suggestionId: 'sg1',
+          summary: 'テスト',
+          impacts: { nodesDelta: 0, edgesDelta: 0, changedNodeIds: [], changedEdgeIds: [] },
+        },
+      })
+      useStore.getState().applyTemplate('flowchart')
+    })
+    expect(useStore.getState().pendingSuggestion).toBeNull()
+  })
+
+  it('applyTemplate でフロー Markdown がパースされノードが生成される', () => {
+    act(() => { useStore.getState().applyTemplate('fishbone') })
+    // fishbone has 7 nodes: 6 cause + 1 effect
+    expect(useStore.getState().nodes.length).toBeGreaterThan(0)
+  })
+
+  it('存在しない id を applyTemplate しても状態が壊れない', () => {
+    const before = useStore.getState().markdown
+    act(() => { useStore.getState().applyTemplate('nonexistent-id') })
+    // No crash, markdown unchanged
+    expect(useStore.getState().markdown).toBe(before)
+  })
+
+  it('異なるテンプレートを連続適用すると最後のテンプレートで上書きされる', () => {
+    act(() => { useStore.getState().applyTemplate('fishbone') })
+    act(() => { useStore.getState().applyTemplate('swot') })
+    expect(useStore.getState().activeTemplateId).toBe('swot')
+    expect(useStore.getState().markdown).toContain('strength')
+  })
+
+  it('全10テンプレートを applyTemplate してもエラーにならない', () => {
+    for (const t of TEMPLATES) {
+      expect(() => {
+        act(() => { useStore.getState().applyTemplate(t.id) })
+      }).not.toThrow()
+    }
+  })
+})
+
+describe('useStore – setSystemPrompt', () => {
+  beforeEach(resetStore)
+
+  it('setSystemPrompt で systemPrompt が更新される', () => {
+    act(() => { useStore.getState().setSystemPrompt('カスタムプロンプト') })
+    expect(useStore.getState().systemPrompt).toBe('カスタムプロンプト')
+  })
+
+  it('setSystemPrompt で空文字を設定できる', () => {
+    act(() => { useStore.getState().setSystemPrompt('何か') })
+    act(() => { useStore.getState().setSystemPrompt('') })
+    expect(useStore.getState().systemPrompt).toBe('')
+  })
+
+  it('applyTemplate 後に setSystemPrompt を呼ぶと上書きできる', () => {
+    act(() => { useStore.getState().applyTemplate('fishbone') })
+    act(() => { useStore.getState().setSystemPrompt('上書きプロンプト') })
+    expect(useStore.getState().systemPrompt).toBe('上書きプロンプト')
   })
 })
