@@ -6,7 +6,8 @@ import { FlowCanvas } from '@/components/canvas/FlowCanvas'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { VersionHistoryPanel } from '@/components/canvas/VersionHistoryPanel'
 import { FlowMetadataPanel } from '@/components/shared/FlowMetadataPanel'
-import { Bot, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History } from 'lucide-react'
+import { Bot, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2 } from 'lucide-react'
+import { AnalyticsPanel } from '@/components/analytics/AnalyticsPanel'
 import { useMsal } from '@azure/msal-react'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
@@ -22,6 +23,7 @@ export function AppLayout() {
   const [chatOpen, setChatOpen] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('agent')
   const [rightPanel, setRightPanel] = useState<'chat' | 'history'>('chat')
+  const [analyticsOpen, setAnalyticsOpen] = useState(false)
   const { accounts } = useMsal()
 
   const userName = USE_MOCK ? 'Demo User' : (accounts[0]?.name ?? accounts[0]?.username ?? 'User')
@@ -110,6 +112,15 @@ export function AppLayout() {
               <MessageSquare className="w-4 h-4" />
             </button>
           )}
+
+          {/* Analytics button */}
+          <button
+            onClick={() => setAnalyticsOpen(true)}
+            className="p-1.5 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 transition-colors"
+            title="利用状況アナリティクス"
+          >
+            <BarChart2 className="w-4 h-4" />
+          </button>
 
           {/* User avatar */}
           <div className="flex items-center gap-2 pl-2 border-l border-zinc-700">
@@ -229,6 +240,9 @@ export function AppLayout() {
         )}
 
       </div>
+
+      {/* Analytics overlay */}
+      {analyticsOpen && <AnalyticsPanel onClose={() => setAnalyticsOpen(false)} />}
     </div>
   )
 }

@@ -13,6 +13,7 @@ import type {
   VersionEntry,
 } from '@/types'
 import { parseFlowFromMarkdown } from '@/lib/flowParser'
+import { trackEvent } from '@/lib/appInsights'
 import { applyDagreLayout } from '@/lib/dagLayout'
 import * as mockApi from '@/lib/mockApi'
 import { v4 as uuidv4 } from 'uuid'
@@ -224,6 +225,7 @@ export const useStore = create<FlowNoteState>()(
           currentNote: { ...s.currentNote!, title, updatedAt: new Date().toISOString() },
         }))
         await get().listNotes()
+        trackEvent('note_saved', { noteId: currentNote.id, title })
       } finally {
         set({ isSaving: false })
       }
@@ -260,6 +262,7 @@ export const useStore = create<FlowNoteState>()(
       mockApi.saveNote({ id, title: '新しいノート', markdown: DEFAULT_MARKDOWN }).then(() => {
         get().listNotes()
       })
+      trackEvent('note_created')
     },
 
     // ─── sendMessageToAgent ─────────────────
@@ -298,6 +301,7 @@ export const useStore = create<FlowNoteState>()(
           agentStatus: 'idle',
           pendingSuggestion: suggestion,
         }))
+        trackEvent('agent_message_sent', { message: message.slice(0, 80) })
       } catch {
         const errMsg: ChatMessage = {
           id: uuidv4(),
@@ -336,6 +340,7 @@ export const useStore = create<FlowNoteState>()(
         edgeCount: after.edges.length,
       }
       set((s) => ({ versionHistory: [entry, ...s.versionHistory].slice(0, 50) }))
+      trackEvent('suggestion_applied', { summary })
     },
 
     // ─── saveVersion ───────────────────────

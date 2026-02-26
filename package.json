@@ -17,6 +17,7 @@
     "@codemirror/lang-markdown": "^6.3.2",
     "@codemirror/theme-one-dark": "^6.1.2",
     "@dagrejs/dagre": "^1.1.4",
+    "@microsoft/applicationinsights-web": "^3.3.11",
     "@microsoft/signalr": "^8.0.7",
     "@uiw/react-codemirror": "^4.23.10",
     "@xyflow/react": "^12.3.6",
