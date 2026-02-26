@@ -17,7 +17,7 @@ export default function App({ initError }: AppProps = {}) {
             Authentication service failed to initialize.
           </p>
           <p className="text-gray-500 text-center text-xs">
-            Please check your configuration and try again.
+            {initError instanceof Error ? initError.message : 'Please check your configuration and try again.'}
           </p>
           <button
             onClick={() => window.location.reload()}

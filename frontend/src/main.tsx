@@ -9,37 +9,48 @@ import './index.css'
 
 const MSAL_INIT_TIMEOUT_MS = 10_000
 
-const msalInstance = new PublicClientApplication(msalConfig)
 const root = ReactDOM.createRoot(document.getElementById('root')!)
 
-function renderApp(initError?: unknown) {
-  if (initError) {
-    root.render(
-      <React.StrictMode>
-        <ErrorBoundary>
-          <App initError={initError} />
-        </ErrorBoundary>
-      </React.StrictMode>
-    )
-  } else {
-    root.render(
-      <React.StrictMode>
-        <ErrorBoundary>
-          <MsalProvider instance={msalInstance}>
-            <App />
-          </MsalProvider>
-        </ErrorBoundary>
-      </React.StrictMode>
-    )
+if (!import.meta.env.VITE_MSAL_CLIENT_ID) {
+  root.render(
+    <React.StrictMode>
+      <ErrorBoundary>
+        <App initError={new Error('VITE_MSAL_CLIENT_ID is not configured. Please set it in your environment variables.')} />
+      </ErrorBoundary>
+    </React.StrictMode>
+  )
+} else {
+  const msalInstance = new PublicClientApplication(msalConfig)
+
+  function renderApp(initError?: unknown) {
+    if (initError) {
+      root.render(
+        <React.StrictMode>
+          <ErrorBoundary>
+            <App initError={initError} />
+          </ErrorBoundary>
+        </React.StrictMode>
+      )
+    } else {
+      root.render(
+        <React.StrictMode>
+          <ErrorBoundary>
+            <MsalProvider instance={msalInstance}>
+              <App />
+            </MsalProvider>
+          </ErrorBoundary>
+        </React.StrictMode>
+      )
+    }
   }
+
+  let timeoutId: ReturnType<typeof setTimeout>
+  const initPromise = msalInstance.initialize()
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Authentication initialization timed out.')), MSAL_INIT_TIMEOUT_MS)
+  })
+
+  Promise.race([initPromise, timeoutPromise])
+    .then(() => { clearTimeout(timeoutId); renderApp() })
+    .catch((error) => { clearTimeout(timeoutId); renderApp(error) })
 }
-
-let timeoutId: ReturnType<typeof setTimeout>
-const initPromise = msalInstance.initialize()
-const timeoutPromise = new Promise<never>((_, reject) => {
-  timeoutId = setTimeout(() => reject(new Error('Authentication initialization timed out.')), MSAL_INIT_TIMEOUT_MS)
-})
-
-Promise.race([initPromise, timeoutPromise])
-  .then(() => { clearTimeout(timeoutId); renderApp() })
-  .catch((error) => { clearTimeout(timeoutId); renderApp(error) })
