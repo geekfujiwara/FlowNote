@@ -137,14 +137,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteNote: async (id, getToken) => {
     try {
       await apiFetch(`/api/delete/${id}`, { method: 'DELETE' }, getToken)
-      set((s) => ({ notes: s.notes.filter((n) => n.id !== id) }))
+      set((s) => ({
+        notes: s.notes.filter((n) => n.id !== id),
+        currentNote: s.currentNote?.id === id ? null : s.currentNote,
+        markdown: s.currentNote?.id === id ? '' : s.markdown,
+        flow: s.currentNote?.id === id ? { nodes: [], edges: [] } : s.flow,
+      }))
     } catch {
       // ignore
     }
   },
 
   sendMessageToAgent: async (message, getToken) => {
-    const { currentNote, markdown, chatMessages } = get()
+    const { currentNote, markdown, selection, chatMessages } = get()
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -158,20 +163,40 @@ export const useAppStore = create<AppState>((set, get) => ({
         '/api/agent/chat',
         {
           method: 'POST',
-          body: JSON.stringify({ noteId: currentNote?.id, message, context: markdown }),
+          body: JSON.stringify({
+            noteId: currentNote?.id,
+            message,
+            context: {
+              markdown,
+              selection,
+              metadata: currentNote
+                ? { title: currentNote.title, tags: currentNote.tags, updatedAt: currentNote.updatedAt }
+                : undefined,
+            },
+          }),
         },
         getToken
       )
       const agentMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'agent',
-        content: data.message || data.content || 'Done.',
+        content: data.summary || data.message || data.content || 'Done.',
         timestamp: new Date().toISOString(),
       }
+      const suggestion: PendingSuggestion | null =
+        data.suggestionId
+          ? {
+              suggestionId: data.suggestionId,
+              summary: data.summary || '',
+              ...(data.markdown !== undefined && { markdown: data.markdown as string }),
+              ...(data.markdownPatch !== undefined && { markdownPatch: data.markdownPatch as string }),
+              impacts: data.impacts || { nodesDelta: 0, edgesDelta: 0 },
+            }
+          : null
       set((s) => ({
         chatMessages: [...s.chatMessages, agentMsg],
         agentStatus: 'idle',
-        pendingSuggestion: data.suggestion || null,
+        pendingSuggestion: suggestion,
       }))
     } catch {
       const mockMsg: ChatMessage = {
