@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useMsal, useIsAuthenticated } from '@azure/msal-react'
-import { loginRequest } from './msalConfig'
+import { loginRequest, hasMsalConfig } from './msalConfig'
 import { Eye, EyeOff, Layers, Lock, LogIn, Loader2 } from 'lucide-react'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
+// Use password auth in mock mode OR when MSAL credentials are not configured
+const USE_PASSWORD_AUTH = USE_MOCK || !hasMsalConfig
 
 // SHA-256 of "geekfujiwara@123"  (do not store the raw password)
 const CORRECT_HASH = '9d617413b02e06342e176091c9b0c0e2d20b8cdd974fbf3b17fcaa610c942e49'
@@ -30,8 +32,8 @@ export function AuthGuard({ children }: Props) {
   useEffect(() => {
     const init = async () => {
       try {
-        if (USE_MOCK) {
-          // In mock mode: require password auth stored in sessionStorage
+        if (USE_PASSWORD_AUTH) {
+          // In password-auth mode: restore session from sessionStorage
           const stored = sessionStorage.getItem(PW_SESSION_KEY)
           if (stored === 'true') {
             sessionStorage.setItem('msal_token', 'mock-token')
@@ -82,11 +84,11 @@ export function AuthGuard({ children }: Props) {
     )
   }
 
-  if (USE_MOCK && !pwAuthed) {
+  if (USE_PASSWORD_AUTH && !pwAuthed) {
     return <PasswordLoginScreen onSuccess={handlePasswordSuccess} />
   }
 
-  if (!USE_MOCK && !isAuthenticated) {
+  if (!USE_PASSWORD_AUTH && !isAuthenticated) {
     return <MsalLoginScreen />
   }
 
