@@ -88,6 +88,13 @@ jobs:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_AGENT_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.VITE_APPINSIGHTS_CONNECTION_STRING }}
+          # Optional: set these secrets to enable Microsoft Entra ID authentication.
+          # When omitted, the app uses password-based access control (single shared
+          # password, suitable for demos/internal tools – NOT for multi-user production
+          # deployments containing sensitive data without additional access controls).
+          VITE_MSAL_CLIENT_ID: ${{ secrets.VITE_MSAL_CLIENT_ID }}
+          VITE_MSAL_TENANT_ID: ${{ secrets.VITE_MSAL_TENANT_ID }}
+          VITE_MSAL_REDIRECT_URI: ${{ secrets.VITE_MSAL_REDIRECT_URI }}
         run: npm run build
 
       - name: Build (mock mode – infra not provisioned)
