@@ -117,6 +117,8 @@ export async function agentChat(payload: {
     markdown: string
     selection: { nodeIds: string[]; edgeIds: string[] }
     metadata: unknown
+    systemPrompt?: string
+    templateId?: string
   }
 }): Promise<Suggestion> {
   if (USE_MOCK_AGENT) {

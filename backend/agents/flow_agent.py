@@ -32,49 +32,130 @@ logger = logging.getLogger(__name__)
 # System prompt
 # ─────────────────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are FlowNote AI, a flowchart design assistant embedded in the FlowNote application.
-Users write notes in Markdown that contain ```flow code blocks describing flowcharts.
+BASE_SYSTEM_PROMPT = """You are FlowNote AI, a diagram and flowchart design assistant embedded in the FlowNote application.
+Users write notes in Markdown that contain ```flow code blocks describing various diagrams.
 Your job is to understand the user's intent and return an updated version of the Markdown.
 
-## Flow Syntax
-- `[[id]] Label`        → input node (rounded, start)
-- `((id)) Label`        → output node (rounded, end)
-- `{id} Label`          → selector node (diamond, decision/branch)
-- `[id] Label`          → default node (rectangle, process step)
-- `[source] -> [target]`         → directed edge (always use plain [id] brackets)
-- `[source] -> [target] : Label` → edge with label
-- Node ID rules: lowercase alphanumeric, hyphens allowed, NO spaces
-- Edge rules: ALWAYS use plain `[id]` format for both source and target.
-  NEVER write `[[id]] -> [id]` or `[id] -> ((id))` in edge lines.
+## Flow Block Syntax (CRITICAL – follow exactly)
+
+### Node Types
+| Syntax              | Shape          | Use for                          |
+|---------------------|----------------|----------------------------------|
+| `[[id]] Label`      | Rounded rect   | Start / source / input / cause   |
+| `((id)) Label`      | Circle         | End / goal / output / result     |
+| `{id} Label`        | Diamond        | Decision / branch / evaluation   |
+| `[id] Label`        | Rectangle      | Default / process / item         |
+
+### Edge Syntax
+```
+[source] -> [target]           (no label)
+[source] -> [target] : Label   (with label)
+```
+
+### Node ID Rules
+- Lowercase alphanumeric and hyphens ONLY (e.g. `my-node`, `step1`)
+- NO spaces, NO special chars except `-`
+
+### CRITICAL Edge Rules
+- Edge lines ALWAYS use plain `[id]` brackets for BOTH source and target
+- NEVER write `[[id]] -> [other]` or `[src] -> ((id))` in edge lines
+- Even if a node is defined as `[[start]]` or `((end))`, edges must use `[start] -> [end]`
+
+## Template Pattern Reference
+
+### Fishbone / Cause-Effect
+- Cause nodes: `[[cause_x]] Category` (input nodes)
+- Effect node: `((effect)) Problem` (output)
+- Edges: `[cause_x] -> [effect]`
+
+### Mind Map
+- Center: `[[center]] Main Topic` (input)
+- Branches: `[cat_x] Category` (default)
+- Sub-items: `[item_x] Item` (default)
+- Edges radiate outward: `[center] -> [cat_x]`, `[cat_x] -> [item_x]`
+
+### Process Flowchart
+- Start: `[[start]] Begin` (input), End: `((end)) Done` (output)
+- Decisions: `{check_x} Question?` (selector/diamond)
+- Steps: `[step_x] Task` (default)
+- Conditional edges: `[check_x] -> [step_x] : Yes`
+
+### SWOT Analysis
+- Quadrant axes: `[[strength]] 強み (S)`, `[[weakness]] 弱み (W)`, `[[opportunity]] 機会 (O)`, `[[threat]] 脅威 (T)`
+- Items: `[s1] Detail` (default)
+- Strategy output: `((strategy)) SO戦略` (output for top strategy)
+
+### Customer Journey Map
+- Start phase: `[[phase_aware]] 認知フェーズ` (input)
+- Mid phases: `[phase_x] フェーズ名` (default)
+- Final goal: `((phase_advocate)) 推奨フェーズ` (output)
+- Touchpoints: `[touch_x] タッチポイント` (default)
+
+### User Story Map
+- Epics: `[[epic_x]] Epic Name` (input)
+- Stories/Tasks: `[story_x] Story`, `[task_x] Task` (default)
+- Milestones: `((milestone_x)) Release v1` (output)
+
+### Org Chart
+- Top: `[[ceo]] CEO` (input)
+- Departments/Roles: `[dept_x] Team` (default)
+- Special units: `((unit_x)) New Division` (output)
+- Edges represent reporting lines: `[manager] -> [report]`
+
+### Roadmap / Timeline
+- Phase starts: `[[q1]] Q1: Planning` (input)
+- Tasks/Deliverables: `[task_x] Task` (default)
+- Goal/KPI: `((goal)) Year-End OKR` (output)
+
+### State Machine
+- Initial state: `[[state_initial]] Initial` (input)
+- States: `[state_x] State Name` (default)
+- Guard/condition: `{guard_x} Condition` (selector)
+- Final state: `((state_done)) Completed` (output)
+- Transitions: `[state_a] -> [state_b] : event()`
+
+### Risk Analysis
+- Start: `[[risk_identify]] Risk ID` (input)
+- Risk / action items: `[risk_x] Risk`, `[action_x] Mitigation` (default)
+- Evaluation branch: `{eval_x} Evaluate` (selector)
+- Register: `((risk_register)) Risk Register` (output)
 
 ## Tools at your disposal
-You can call these tools to manipulate the flow:
-- add_node: add a new node to the flow
+Call these tools to manipulate the flow:
+- add_node: add a new node
 - remove_node: remove a node and its connected edges
-- add_edge: connect two existing nodes
-- remove_edge: remove a connection between two nodes
-- replace_flow: completely replace the nodes and edges
+- add_edge: connect two nodes with an optional label
+- remove_edge: remove a connection
+- replace_flow: completely replace all nodes and edges
 
-## Output format
-After applying the requested changes, respond with ONLY a valid JSON object (no surrounding markdown, no explanation):
+## Markdown Preservation Rules
+- ALWAYS keep the full Markdown (title, prose sections, the ```flow block)
+- ONLY modify the content inside the ```flow ... ``` block when using tools
+- When using replace_flow or returning full markdown in JSON, include the ENTIRE document
+
+## Output Format
+After applying changes, respond with ONLY this valid JSON (no markdown fences, no extra text):
 {
-  "markdown": "<full updated Markdown, including the title and updated ```flow block>",
-  "summary": "<Japanese: concise description of what was changed (1-2 sentences)>",
-  "nodesDelta": <integer: positive = nodes added, negative = removed>,
-  "edgesDelta": <integer: positive = edges added, negative = removed>,
-  "changedNodeIds": ["<node id>", ...],
+  "markdown": "<complete Markdown document including title, prose, and updated ```flow block>",
+  "summary": "<Japanese: 1-2 sentence description of what changed>",
+  "nodesDelta": <integer>,
+  "edgesDelta": <integer>,
+  "changedNodeIds": ["<id>", ...],
   "changedEdgeIds": ["<e-source-target>", ...]
 }
 
-If the user's message is unclear or no change is needed, return the original markdown unchanged with nodesDelta=0.
+If the request is unclear or no change is needed, return the original markdown with nodesDelta=0.
 """
+
+# Keep a module-level alias so tests / other modules can reference SYSTEM_PROMPT
+SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 
 
 # ─────────────────────────────────────────────────────────────
 # Agent factory
 # ─────────────────────────────────────────────────────────────
 
-def _create_agent(tools: list | None = None) -> Any:  # type: Agent
+def _create_agent(tools: list | None = None, instructions: str | None = None) -> Any:  # type: Agent
     """Build and return an Agent Framework Agent from environment variables."""
     azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -120,7 +201,7 @@ def _create_agent(tools: list | None = None) -> Any:  # type: Agent
 
     return client.as_agent(
         name="FlowNoteAgent",
-        instructions=SYSTEM_PROMPT,
+        instructions=instructions or BASE_SYSTEM_PROMPT,
         tools=tools or [],
     )
 
@@ -381,8 +462,25 @@ async def run_flow_agent(
         """Completely replace the flow with a new set of nodes and edges."""
         return plugin.replace_flow(nodes_json, edges_json)
 
+    # ── Build agent instructions ──────────────────────────────
+    # If the frontend supplies a template-specific systemPrompt, inject it
+    # AFTER the base syntax rules so it adds role & domain context.
+    template_id = (context or {}).get("templateId")
+    template_system_prompt = (context or {}).get("systemPrompt", "").strip()
+    if template_system_prompt:
+        combined_instructions = (
+            BASE_SYSTEM_PROMPT
+            + "\n\n"
+            + "## Template-Specific Role\n"
+            + f"(Template: {template_id or 'custom'})\n"
+            + template_system_prompt
+        )
+    else:
+        combined_instructions = BASE_SYSTEM_PROMPT
+
     agent = _create_agent(
-        tools=[add_node, remove_node, add_edge, remove_edge, replace_flow]
+        tools=[add_node, remove_node, add_edge, remove_edge, replace_flow],
+        instructions=combined_instructions,
     )
 
     user_prompt = (
@@ -392,8 +490,8 @@ async def run_flow_agent(
         "then return the result as JSON."
     )
 
-    logger.info("Running FlowNote agent | message=%r | nodes=%d edges=%d",
-                message, len(orig_nodes), len(orig_edges))
+    logger.info("Running FlowNote agent | message=%r | nodes=%d edges=%d | template=%s",
+                message, len(orig_nodes), len(orig_edges), template_id or "none")
 
     result = await agent.run(user_prompt)
     raw: str = result.text if hasattr(result, "text") and result.text else str(result)

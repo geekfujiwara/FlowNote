@@ -588,16 +588,16 @@ MVP → v1.0 → v2.0 の段階リリース計画
 [state_processing] 処理中
 [state_shipped] 出荷済み
 [state_delivered] 配送完了
-[state_cancelled]] キャンセル済み
+[state_cancelled] キャンセル済み
 ((state_completed)) 完了
 
 [state_initial] -> [state_draft] : create()
 [state_draft] -> [state_submitted] : submit()
-[state_draft] -> [state_cancelled]] : cancel()
+[state_draft] -> [state_cancelled] : cancel()
 [state_submitted] -> [state_processing] : startProcessing()
-[state_submitted] -> [state_cancelled]] : cancel()
+[state_submitted] -> [state_cancelled] : cancel()
 [state_processing] -> [state_shipped] : ship()
-[state_processing] -> [state_cancelled]] : cancel()
+[state_processing] -> [state_cancelled] : cancel()
 [state_shipped] -> [state_delivered] : delivered()
 [state_delivered] -> [state_completed] : confirm()
 \`\`\`

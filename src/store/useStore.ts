@@ -298,6 +298,8 @@ export const useStore = create<FlowNoteState>()(
             markdown,
             selection: { nodeIds: selectedNodeIds, edgeIds: selectedEdgeIds },
             metadata: currentNote,
+            systemPrompt: get().systemPrompt || undefined,
+            templateId: get().activeTemplateId || undefined,
           },
         })
 
