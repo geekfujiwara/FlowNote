@@ -24,7 +24,7 @@ import logging
 import os
 import re
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +74,8 @@ If the user's message is unclear or no change is needed, return the original mar
 # Agent factory
 # ─────────────────────────────────────────────────────────────
 
-def _create_agent() -> Any:  # type: AIAgent
-    """Build and return an Agent Framework AIAgent from environment variables."""
+def _create_agent(tools: list | None = None) -> Any:  # type: Agent
+    """Build and return an Agent Framework Agent from environment variables."""
     azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
@@ -121,6 +121,7 @@ def _create_agent() -> Any:  # type: AIAgent
     return client.as_agent(
         name="FlowNoteAgent",
         instructions=SYSTEM_PROMPT,
+        tools=tools or [],
     )
 
 
@@ -317,7 +318,11 @@ def _parse_flow(markdown: str) -> tuple[list[dict], list[dict]]:
 # Main entry point
 # ─────────────────────────────────────────────────────────────
 
-async def run_flow_agent(message: str, markdown: str) -> dict:
+async def run_flow_agent(
+    message: str,
+    markdown: str,
+    context: dict | None = None,
+) -> dict:
     """
     Run the Agent Framework agent and return a Suggestion dict compatible
     with the FlowNote frontend's Suggestion TypeScript type.
@@ -329,11 +334,56 @@ async def run_flow_agent(message: str, markdown: str) -> dict:
         edges=[dict(e) for e in orig_edges],
     )
 
-    agent = _create_agent()
+    # ── Expose FlowEditorPlugin methods as closure tools ──────
+    # Agent Framework passes tools as a list of callables with Annotated params.
+    # We wrap the plugin's instance methods so the agent can call them.
 
-    # Register the plugin's tools with the agent
-    # Agent Framework uses `add_plugin` to expose instance methods as tools
-    agent.add_plugin(plugin, plugin_name="flow_editor")  # type: ignore[attr-defined]
+    def add_node(
+        node_id: Annotated[str, "Unique identifier (lowercase, no spaces)."],
+        label: Annotated[str, "Display label shown inside the node."],
+        node_type: Annotated[
+            str, "One of 'default', 'input', 'output', 'selector'."
+        ] = "default",
+    ) -> str:
+        """Add a new node to the flow diagram."""
+        return plugin.add_node(node_id, label, node_type)
+
+    def remove_node(
+        node_id: Annotated[str, "ID of the node to remove."],
+    ) -> str:
+        """Remove a node and all edges connected to it."""
+        return plugin.remove_node(node_id)
+
+    def add_edge(
+        source: Annotated[str, "Source node ID."],
+        target: Annotated[str, "Target node ID."],
+        label: Annotated[str, "Optional label on the edge."] = "",
+    ) -> str:
+        """Add a directed edge between two nodes."""
+        return plugin.add_edge(source, target, label)
+
+    def remove_edge(
+        source: Annotated[str, "Source node ID."],
+        target: Annotated[str, "Target node ID."],
+    ) -> str:
+        """Remove an edge between two nodes."""
+        return plugin.remove_edge(source, target)
+
+    def replace_flow(
+        nodes_json: Annotated[
+            str, "JSON array of node objects with id, label, type."
+        ],
+        edges_json: Annotated[
+            str,
+            "JSON array of edge objects with source, target, and optional label.",
+        ],
+    ) -> str:
+        """Completely replace the flow with a new set of nodes and edges."""
+        return plugin.replace_flow(nodes_json, edges_json)
+
+    agent = _create_agent(
+        tools=[add_node, remove_node, add_edge, remove_edge, replace_flow]
+    )
 
     user_prompt = (
         f"<current_flow_markdown>\n{markdown}\n</current_flow_markdown>\n\n"
@@ -345,7 +395,8 @@ async def run_flow_agent(message: str, markdown: str) -> dict:
     logger.info("Running FlowNote agent | message=%r | nodes=%d edges=%d",
                 message, len(orig_nodes), len(orig_edges))
 
-    raw: str = str(await agent.run(user_prompt))
+    result = await agent.run(user_prompt)
+    raw: str = result.text if hasattr(result, "text") and result.text else str(result)
 
     logger.debug("Agent raw response: %s", raw[:500])
 
