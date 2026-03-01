@@ -10,7 +10,7 @@ Required env vars (set ONE of the two providers):
     AZURE_OPENAI_ENDPOINT         e.g. https://my-resource.openai.azure.com
     AZURE_OPENAI_DEPLOYMENT_NAME  default: gpt-4o-mini
     AZURE_OPENAI_API_KEY          optional; omit to use DefaultAzureCredential
-    AZURE_OPENAI_API_VERSION      default: 2025-03-01-preview
+    AZURE_OPENAI_API_VERSION      default: 2025-04-01-preview
 
   OpenAI:
     OPENAI_API_KEY
@@ -166,7 +166,7 @@ def _get_client() -> tuple[Any, str]:
 
         deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
-        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2025-03-01-preview")
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2025-04-01-preview")
 
         if api_key:
             client = AsyncAzureOpenAI(
