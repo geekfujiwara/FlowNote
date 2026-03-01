@@ -346,7 +346,8 @@ jobs:
           if [ -z "$ENDPOINT" ]; then
             echo "::warning::AZURE_OPENAI_ENDPOINT is empty – agent will fail with 404"
           else
-            echo "✅  AZURE_OPENAI_ENDPOINT is set (${ENDPOINT%%/*}//...)"
+            MASKED=$(echo "$ENDPOINT" | sed 's|^\(https\{0,1\}://[^/]*\).*|\1|')
+            echo "✅  AZURE_OPENAI_ENDPOINT is set ($MASKED/...)"
           fi
           if [ -z "$DEPLOYMENT" ]; then
             echo "::warning::AZURE_OPENAI_DEPLOYMENT_NAME is empty – agent will fail with 404"
