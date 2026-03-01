@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import azure.functions as func
 from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.core.exceptions import ResourceNotFoundError
+from azure.identity import DefaultAzureCredential
 
 from agents.flow_agent import run_flow_agent
 
@@ -27,8 +28,9 @@ app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 # Blob Storage helpers
 # ---------------------------------------------------------------
 
-_STORAGE_CONN    = os.environ.get("STORAGE_CONNECTION_STRING", "")
-_NOTES_CONTAINER = os.environ.get("NOTES_CONTAINER", "notes")
+_STORAGE_ACCOUNT_URL = os.environ.get("STORAGE_ACCOUNT_URL", "")  # managed identity
+_STORAGE_CONN        = os.environ.get("STORAGE_CONNECTION_STRING", "")  # local fallback
+_NOTES_CONTAINER     = os.environ.get("NOTES_CONTAINER", "notes")
 
 _blob_client = None
 
@@ -36,7 +38,15 @@ _blob_client = None
 def _get_blob_client():
     global _blob_client
     if _blob_client is None:
-        _blob_client = BlobServiceClient.from_connection_string(_STORAGE_CONN)
+        if _STORAGE_ACCOUNT_URL:
+            # Use managed identity (production)
+            _blob_client = BlobServiceClient(
+                account_url=_STORAGE_ACCOUNT_URL,
+                credential=DefaultAzureCredential(),
+            )
+        else:
+            # Fallback to connection string (local development)
+            _blob_client = BlobServiceClient.from_connection_string(_STORAGE_CONN)
     return _blob_client
 
 

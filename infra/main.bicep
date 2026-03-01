@@ -115,14 +115,17 @@ resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
   }
 }
 
-// ── Storage connection string (local var) ────────────────────
-var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${az.environment().suffixes.storage}'
+// ── Storage Blob Data Owner role (managed identity) ────────────
+var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
 
 // ── Function App ─────────────────────────────────────────────
 resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
   name: functionAppName
   location: location
   kind: 'functionapp,linux'
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     serverFarmId: plan.id
     httpsOnly: true
@@ -133,16 +136,18 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
       }
       appSettings: [
         {
-          name: 'AzureWebJobsStorage'
-          value: storageConnectionString
+          // Managed identity auth: no key required
+          name: 'AzureWebJobsStorage__accountName'
+          value: storage.name
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: appInsights.properties.ConnectionString
         }
         {
-          name: 'STORAGE_CONNECTION_STRING'
-          value: storageConnectionString
+          // Blob URL for managed-identity-based storage access in Python backend
+          name: 'STORAGE_ACCOUNT_URL'
+          value: storage.properties.primaryEndpoints.blob
         }
         {
           name: 'NOTES_CONTAINER'
@@ -177,8 +182,7 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           type: 'blobContainer'
           value: '${storage.properties.primaryEndpoints.blob}deployments'
           authentication: {
-            type: 'StorageAccountConnectionString'
-            storageAccountConnectionStringName: 'AzureWebJobsStorage'
+            type: 'SystemAssignedIdentity'
           }
         }
       }
@@ -191,6 +195,17 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
         version: pythonVersion
       }
     }
+  }
+}
+
+// ── Role Assignment: Function App → Storage Blob Data Owner ──
+resource funcStorageRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, functionApp.id, storageBlobDataOwnerRoleId)
+  scope: storage
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
