@@ -159,11 +159,8 @@ SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 
 def _create_agent(tools: list | None = None, instructions: str | None = None) -> Any:  # type: Agent
     """Build and return an Agent Framework Agent from environment variables."""
-    # ── OTEL shim: patch SpanAttributes before agent_framework is imported ──
-    # opentelemetry-semantic-conventions-ai>=0.4.x may no longer expose
-    # LLM_REQUEST_MODEL etc. on SpanAttributes. Ensure they exist so
-    # agent-framework-azure-ai (opentelemetry-instrumentation-openai) doesn't crash.
-    import sys as _s, types as _t, logging as _lg
+    # ── OTEL shim (permissive metaclass) – run before any agent_framework import ──
+    import sys as _s, types as _t
     _llm_map = {
         'LLM_REQUEST_MODEL': 'llm.request.model',
         'LLM_RESPONSE_MODEL': 'llm.response.model',
@@ -177,36 +174,25 @@ def _create_agent(tools: list | None = None, instructions: str | None = None) ->
         'LLM_USAGE_TOTAL_TOKENS': 'llm.usage.total_tokens',
         'LLM_STREAM': 'llm.is_streaming',
     }
-    def _apply_llm_attrs(cls):
-        for k, v in _llm_map.items():
-            if not hasattr(cls, k):
-                try:
-                    setattr(cls, k, v)
-                except Exception:
-                    pass
-    for _mod_path in ('opentelemetry.semconv.ai', 'opentelemetry.semconv.trace'):
+    class _PMeta(type):
+        def __getattr__(cls, name: str) -> str:
+            return name.lower().replace('_', '.')
+    _PSA = _PMeta('SpanAttributes', (), dict(_llm_map))
+    for _mp in ('opentelemetry.semconv.ai', 'opentelemetry.semconv.trace', 'opentelemetry.semconv'):
         try:
             import importlib as _il
-            _m = _il.import_module(_mod_path)
-            _sa = getattr(_m, 'SpanAttributes', None)
-            if _sa:
-                _apply_llm_attrs(_sa)
+            _mod = _il.import_module(_mp)
+            _mod.SpanAttributes = _PSA
+        except ImportError:
+            _fm = _t.ModuleType(_mp)
+            _fm.SpanAttributes = _PSA  # type: ignore
+            _s.modules[_mp] = _fm
+            _parts = _mp.rsplit('.', 1)
+            if len(_parts) == 2 and _parts[0] in _s.modules:
+                setattr(_s.modules[_parts[0]], _parts[1], _fm)
         except Exception:
             pass
-    # If opentelemetry.semconv.ai doesn't exist at all, inject a synthetic module
-    if 'opentelemetry.semconv.ai' not in _s.modules:
-        try:
-            _fake = _t.ModuleType('opentelemetry.semconv.ai')
-            class _SA: pass
-            for _k, _v in _llm_map.items():
-                setattr(_SA, _k, _v)
-            _fake.SpanAttributes = _SA
-            _s.modules['opentelemetry.semconv.ai'] = _fake
-            if 'opentelemetry.semconv' in _s.modules:
-                setattr(_s.modules['opentelemetry.semconv'], 'ai', _fake)
-        except Exception:
-            pass
-    # ── end OTEL shim ───────────────────────────────────────────────────────
+    # ── end OTEL shim ────────────────────────────────────────────────────────────
     azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
