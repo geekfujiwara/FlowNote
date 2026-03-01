@@ -21,29 +21,77 @@ from azure.identity import DefaultAzureCredential
 
 # ---------------------------------------------------------------
 # OpenTelemetry backward-compat shim
-# opentelemetry-semantic-conventions>=0.50b0 removed LLM_* attrs from
-# SpanAttributes. agent-framework (via opentelemetry-instrumentation-openai)
-# still references them at runtime. Add them back as a no-op shim so
-# no AttributeError is raised regardless of installed version.
+# agent-framework-azure-ai uses opentelemetry-instrumentation-openai
+# which accesses SpanAttributes.LLM_REQUEST_MODEL etc. at runtime.
+# Depending on the installed version of opentelemetry-semantic-conventions-ai,
+# these may be missing. Patch all known module paths proactively.
 # ---------------------------------------------------------------
+import sys as _sys
+import types as _types
+import logging as _shim_log
+
+_LLM_ATTRS_MAP = {
+    'LLM_REQUEST_MODEL':            'llm.request.model',
+    'LLM_RESPONSE_MODEL':           'llm.response.model',
+    'LLM_VENDOR':                   'llm.vendor',
+    'LLM_REQUEST_TYPE':             'llm.request.type',
+    'LLM_REQUEST_MAX_TOKENS':       'llm.request.max_tokens',
+    'LLM_TEMPERATURE':              'llm.temperature',
+    'LLM_TOP_P':                    'llm.top_p',
+    'LLM_USAGE_PROMPT_TOKENS':      'llm.usage.prompt_tokens',
+    'LLM_USAGE_COMPLETION_TOKENS':  'llm.usage.completion_tokens',
+    'LLM_USAGE_TOTAL_TOKENS':       'llm.usage.total_tokens',
+    'LLM_STREAM':                   'llm.is_streaming',
+}
+
+def _patch_span_attributes(sa_class):
+    for _k, _v in _LLM_ATTRS_MAP.items():
+        if not hasattr(sa_class, _k):
+            try:
+                setattr(sa_class, _k, _v)
+            except Exception as _e:
+                _shim_log.warning("OTEL SHIM: setattr %s failed: %s", _k, _e)
+
+# 1. Patch opentelemetry.semconv.ai (opentelemetry-semantic-conventions-ai)
 try:
-    from opentelemetry.semconv.trace import SpanAttributes as _SA
-    _LLM_ATTRS = {
-        'LLM_REQUEST_MODEL':            'llm.request.model',
-        'LLM_RESPONSE_MODEL':           'llm.response.model',
-        'LLM_VENDOR':                   'llm.vendor',
-        'LLM_REQUEST_TYPE':             'llm.request.type',
-        'LLM_REQUEST_MAX_TOKENS':       'llm.request.max_tokens',
-        'LLM_TEMPERATURE':              'llm.temperature',
-        'LLM_TOP_P':                    'llm.top_p',
-        'LLM_USAGE_PROMPT_TOKENS':      'llm.usage.prompt_tokens',
-        'LLM_USAGE_COMPLETION_TOKENS':  'llm.usage.completion_tokens',
-        'LLM_USAGE_TOTAL_TOKENS':       'llm.usage.total_tokens',
-        'LLM_STREAM':                   'llm.is_streaming',
-    }
-    for _k, _v in _LLM_ATTRS.items():
-        if not hasattr(_SA, _k):
-            setattr(_SA, _k, _v)
+    import opentelemetry.semconv.ai as _otel_ai_mod
+    _SA_ai = getattr(_otel_ai_mod, 'SpanAttributes', None)
+    if _SA_ai is not None:
+        _patch_span_attributes(_SA_ai)
+        _shim_log.warning("OTEL SHIM: patched opentelemetry.semconv.ai.SpanAttributes")
+    else:
+        # Create SpanAttributes in the module if missing
+        class _SpanAttributesAI:
+            pass
+        for _k, _v in _LLM_ATTRS_MAP.items():
+            setattr(_SpanAttributesAI, _k, _v)
+        _otel_ai_mod.SpanAttributes = _SpanAttributesAI
+        _shim_log.warning("OTEL SHIM: created SpanAttributes in opentelemetry.semconv.ai")
+except ImportError:
+    # Module doesn't exist at all – create a synthetic one
+    try:
+        _ai_mod = _types.ModuleType('opentelemetry.semconv.ai')
+        class _SpanAttributesAI:
+            pass
+        for _k, _v in _LLM_ATTRS_MAP.items():
+            setattr(_SpanAttributesAI, _k, _v)
+        _ai_mod.SpanAttributes = _SpanAttributesAI
+        _sys.modules['opentelemetry.semconv.ai'] = _ai_mod
+        # Attach to parent package if it exists
+        if 'opentelemetry.semconv' in _sys.modules:
+            setattr(_sys.modules['opentelemetry.semconv'], 'ai', _ai_mod)
+        _shim_log.warning("OTEL SHIM: injected synthetic opentelemetry.semconv.ai module")
+    except Exception as _e2:
+        _shim_log.warning("OTEL SHIM: failed to inject synthetic ai module: %s", _e2)
+except Exception as _e:
+    _shim_log.warning("OTEL SHIM: opentelemetry.semconv.ai patch failed: %s", _e)
+
+# 2. Also patch opentelemetry.semconv.trace (legacy path)
+try:
+    import opentelemetry.semconv.trace as _otel_trace_mod
+    _SA_trace = getattr(_otel_trace_mod, 'SpanAttributes', None)
+    if _SA_trace is not None:
+        _patch_span_attributes(_SA_trace)
 except Exception:
     pass
 
@@ -292,3 +340,52 @@ async def agent_chat(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:
         logger.exception("Unexpected error in agent_chat")
         return _error(f"Agent error: {exc}", 500)
+
+
+# ---------------------------------------------------------------
+# GET /api/debug/otel  (診断用 – 本番でも一時的に有効化)
+# ---------------------------------------------------------------
+
+@app.route(route="debug/otel", methods=["GET"])
+async def debug_otel(req: func.HttpRequest) -> func.HttpResponse:
+    import importlib, sys as _s
+    info: dict = {"sys_modules_otel": [], "span_attrs": {}}
+    # installed packages
+    try:
+        import importlib.metadata as _meta
+        pkgs = ["opentelemetry-semantic-conventions",
+                "opentelemetry-semantic-conventions-ai",
+                "opentelemetry-instrumentation-openai",
+                "agent-framework-core",
+                "agent-framework-azure-ai"]
+        info["packages"] = {p: _meta.version(p) for p in pkgs if _meta.version.__doc__ or True
+                            if _safe_version(_meta, p)}
+    except Exception as e:
+        info["packages_error"] = str(e)
+
+    info["sys_modules_otel"] = [k for k in _s.modules if "otel" in k or "semconv" in k]
+
+    # Check SpanAttributes in semconv.ai
+    for mod_path in ["opentelemetry.semconv.ai", "opentelemetry.semconv.trace"]:
+        try:
+            m = importlib.import_module(mod_path)
+            sa = getattr(m, "SpanAttributes", None)
+            if sa:
+                info["span_attrs"][mod_path] = {
+                    "LLM_REQUEST_MODEL": getattr(sa, "LLM_REQUEST_MODEL", "MISSING"),
+                }
+            else:
+                info["span_attrs"][mod_path] = "SpanAttributes not in module"
+        except ImportError:
+            info["span_attrs"][mod_path] = "ImportError"
+        except Exception as e:
+            info["span_attrs"][mod_path] = str(e)
+
+    return _json_response(info)
+
+
+def _safe_version(meta, pkg):
+    try:
+        return meta.version(pkg)
+    except Exception:
+        return None

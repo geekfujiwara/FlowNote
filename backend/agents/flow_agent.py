@@ -159,6 +159,54 @@ SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 
 def _create_agent(tools: list | None = None, instructions: str | None = None) -> Any:  # type: Agent
     """Build and return an Agent Framework Agent from environment variables."""
+    # ── OTEL shim: patch SpanAttributes before agent_framework is imported ──
+    # opentelemetry-semantic-conventions-ai>=0.4.x may no longer expose
+    # LLM_REQUEST_MODEL etc. on SpanAttributes. Ensure they exist so
+    # agent-framework-azure-ai (opentelemetry-instrumentation-openai) doesn't crash.
+    import sys as _s, types as _t, logging as _lg
+    _llm_map = {
+        'LLM_REQUEST_MODEL': 'llm.request.model',
+        'LLM_RESPONSE_MODEL': 'llm.response.model',
+        'LLM_VENDOR': 'llm.vendor',
+        'LLM_REQUEST_TYPE': 'llm.request.type',
+        'LLM_REQUEST_MAX_TOKENS': 'llm.request.max_tokens',
+        'LLM_TEMPERATURE': 'llm.temperature',
+        'LLM_TOP_P': 'llm.top_p',
+        'LLM_USAGE_PROMPT_TOKENS': 'llm.usage.prompt_tokens',
+        'LLM_USAGE_COMPLETION_TOKENS': 'llm.usage.completion_tokens',
+        'LLM_USAGE_TOTAL_TOKENS': 'llm.usage.total_tokens',
+        'LLM_STREAM': 'llm.is_streaming',
+    }
+    def _apply_llm_attrs(cls):
+        for k, v in _llm_map.items():
+            if not hasattr(cls, k):
+                try:
+                    setattr(cls, k, v)
+                except Exception:
+                    pass
+    for _mod_path in ('opentelemetry.semconv.ai', 'opentelemetry.semconv.trace'):
+        try:
+            import importlib as _il
+            _m = _il.import_module(_mod_path)
+            _sa = getattr(_m, 'SpanAttributes', None)
+            if _sa:
+                _apply_llm_attrs(_sa)
+        except Exception:
+            pass
+    # If opentelemetry.semconv.ai doesn't exist at all, inject a synthetic module
+    if 'opentelemetry.semconv.ai' not in _s.modules:
+        try:
+            _fake = _t.ModuleType('opentelemetry.semconv.ai')
+            class _SA: pass
+            for _k, _v in _llm_map.items():
+                setattr(_SA, _k, _v)
+            _fake.SpanAttributes = _SA
+            _s.modules['opentelemetry.semconv.ai'] = _fake
+            if 'opentelemetry.semconv' in _s.modules:
+                setattr(_s.modules['opentelemetry.semconv'], 'ai', _fake)
+        except Exception:
+            pass
+    # ── end OTEL shim ───────────────────────────────────────────────────────
     azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
