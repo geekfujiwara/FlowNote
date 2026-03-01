@@ -173,10 +173,14 @@ jobs:
       - name: Override SWA token with fresh Azure-fetched token
         if: ${{ needs.check-secrets.outputs.has_azure_creds == 'true' }}
         run: |
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
           TOKEN=$(az staticwebapp secrets list \
             --name "${{ env.SWA_NAME }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
-            --subscription "${{ env.SUBSCRIPTION_ID }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
             --query "properties.apiKey" \
             --output tsv 2>/dev/null || true)
           if [ -n "$TOKEN" ]; then
@@ -265,11 +269,57 @@ jobs:
           [ -n "$OAI_DEPLOYMENT" ]  && SETTINGS+=("AZURE_OPENAI_DEPLOYMENT_NAME=$OAI_DEPLOYMENT")
           [ -n "$OAI_API_VERSION" ] && SETTINGS+=("AZURE_OPENAI_API_VERSION=$OAI_API_VERSION")
           if [ ${#SETTINGS[@]} -gt 0 ]; then
+            SUBSCRIPTION_ARGS=()
+            if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+              SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+            fi
             az functionapp config appsettings set \
               --name "${{ env.FUNCTION_APP_NAME }}" \
               --resource-group "${{ env.RESOURCE_GROUP }}" \
-              --subscription "${{ env.SUBSCRIPTION_ID }}" \
+              "${SUBSCRIPTION_ARGS[@]}" \
               --settings "${SETTINGS[@]}"
+          fi
+
+      - name: Verify Azure OpenAI app settings
+        run: |
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
+          ENDPOINT=$(az functionapp config appsettings list \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query "[?name=='AZURE_OPENAI_ENDPOINT'].value | [0]" \
+            --output tsv 2>/dev/null || true)
+          DEPLOYMENT=$(az functionapp config appsettings list \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query "[?name=='AZURE_OPENAI_DEPLOYMENT_NAME'].value | [0]" \
+            --output tsv 2>/dev/null || true)
+          API_VER=$(az functionapp config appsettings list \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query "[?name=='AZURE_OPENAI_API_VERSION'].value | [0]" \
+            --output tsv 2>/dev/null || true)
+
+          echo "## Azure OpenAI Configuration" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$ENDPOINT" ]; then
+            echo "::warning::AZURE_OPENAI_ENDPOINT is empty – agent will fail with 404"
+          else
+            echo "✅  AZURE_OPENAI_ENDPOINT is set (${ENDPOINT%%/*}//...)"
+          fi
+          if [ -z "$DEPLOYMENT" ]; then
+            echo "::warning::AZURE_OPENAI_DEPLOYMENT_NAME is empty – agent will fail with 404"
+          else
+            echo "✅  AZURE_OPENAI_DEPLOYMENT_NAME = $DEPLOYMENT"
+          fi
+          if [ -z "$API_VER" ]; then
+            echo "::warning::AZURE_OPENAI_API_VERSION is empty – using backend default"
+          else
+            echo "✅  AZURE_OPENAI_API_VERSION = $API_VER"
           fi
 
       - name: Azure Logout

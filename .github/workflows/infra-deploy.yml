@@ -42,18 +42,26 @@ jobs:
 
       - name: Create Resource Group
         run: |
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
           az group create \
-            --name ${{ env.RESOURCE_GROUP }} \
-            --location ${{ github.event.inputs.location }} \
-            --subscription ${{ env.SUBSCRIPTION_ID }} \
+            --name "${{ env.RESOURCE_GROUP }}" \
+            --location "${{ github.event.inputs.location }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
             --tags project=FlowNote env=${{ github.event.inputs.environment }}
 
       - name: Deploy Bicep
         id: bicep
         run: |
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
           OUTPUT=$(az deployment group create \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --subscription ${{ env.SUBSCRIPTION_ID }} \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
             --template-file infra/main.bicep \
             --parameters \
               prefix=flownote \
@@ -82,8 +90,8 @@ jobs:
         id: swa_token
         run: |
           TOKEN=$(az staticwebapp secrets list \
-            --name ${{ steps.bicep.outputs.swa_name }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name "${{ steps.bicep.outputs.swa_name }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
             --query "properties.apiKey" \
             --output tsv)
           echo "::add-mask::$TOKEN"
