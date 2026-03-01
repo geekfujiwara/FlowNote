@@ -174,6 +174,11 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           name: 'AZURE_OPENAI_API_VERSION'
           value: azureOpenAiApiVersion
         }
+        {
+          // Disable OpenTelemetry SDK to avoid SpanAttributes version incompatibilities
+          name: 'OTEL_SDK_DISABLED'
+          value: 'true'
+        }
       ]
     }
     functionAppConfig: {

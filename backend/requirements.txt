@@ -3,3 +3,6 @@ azure-storage-blob>=12.19.0
 azure-identity>=1.16.0
 agent-framework-azure-ai==1.0.0b260107
 agent-framework-core==1.0.0b260107
+# Pin opentelemetry semantic conventions to < 0.50b0 to keep SpanAttributes.LLM_REQUEST_MODEL
+# which agent-framework internally references via opentelemetry-instrumentation-openai
+opentelemetry-semantic-conventions>=0.48b0,<0.50b0
