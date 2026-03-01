@@ -133,7 +133,9 @@ export async function agentChat(payload: {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error ?? `Agent API error ${res.status}`)
+    const hint = err.diagnostics?.hint
+    const errorMsg = err.error ?? `Agent API error ${res.status}`
+    throw new Error(hint ? `${errorMsg}\n${hint}` : errorMsg)
   }
   return res.json()
 }

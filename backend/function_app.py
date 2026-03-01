@@ -265,7 +265,7 @@ async def agent_chat(req: func.HttpRequest) -> func.HttpResponse:
         logger.exception("Unexpected error in agent_chat")
         err_str = str(exc)
         # Provide actionable guidance for common Azure OpenAI errors
-        if "404" in err_str and "Resource not found" in err_str:
+        if "404" in err_str:
             endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "(not set)")
             deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "(not set)")
             api_ver = os.environ.get("AZURE_OPENAI_API_VERSION", "(not set)")
@@ -275,4 +275,66 @@ async def agent_chat(req: func.HttpRequest) -> func.HttpResponse:
                 "in the Azure OpenAI resource and that GitHub Secrets match Bicep outputs.",
                 endpoint, deployment, api_ver,
             )
+            return _json_response({
+                "error": f"Agent error: {exc}",
+                "diagnostics": {
+                    "endpoint": endpoint,
+                    "deployment": deployment,
+                    "apiVersion": api_ver,
+                    "hint": (
+                        "Azure OpenAI returned 404 (Resource not found). "
+                        "Please verify: (1) AZURE_OPENAI_DEPLOYMENT_NAME matches "
+                        "an existing deployment in Azure Portal > Azure OpenAI > Model deployments, "
+                        "(2) AZURE_OPENAI_ENDPOINT is correct, "
+                        "(3) AZURE_OPENAI_API_VERSION is supported."
+                    ),
+                },
+            }, 500)
         return _error(f"Agent error: {exc}", 500)
+
+
+# ---------------------------------------------------------------
+# GET /api/agent/health
+# ---------------------------------------------------------------
+
+@app.route(route="agent/health", methods=["GET", "OPTIONS"])
+async def agent_health(req: func.HttpRequest) -> func.HttpResponse:
+    """Return Azure OpenAI configuration status without making an API call."""
+    if req.method == "OPTIONS":
+        return _preflight()
+
+    endpoint   = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip().rstrip("/")
+    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "").strip()
+    api_ver    = os.environ.get("AZURE_OPENAI_API_VERSION", "").strip()
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+
+    issues: list[str] = []
+
+    if endpoint:
+        provider = "azure"
+        if not endpoint.startswith("https://"):
+            issues.append("AZURE_OPENAI_ENDPOINT does not start with 'https://'")
+        if endpoint.rstrip("/").endswith("/openai"):
+            issues.append("AZURE_OPENAI_ENDPOINT should not end with '/openai'")
+        if not deployment:
+            issues.append("AZURE_OPENAI_DEPLOYMENT_NAME is not set")
+        if " " in deployment or "/" in deployment:
+            issues.append("AZURE_OPENAI_DEPLOYMENT_NAME contains invalid characters (spaces or slashes)")
+    elif openai_key:
+        provider = "openai"
+    else:
+        provider = "none"
+        issues.append("No LLM provider configured (set AZURE_OPENAI_ENDPOINT or OPENAI_API_KEY)")
+
+    status = "ok" if not issues else "misconfigured"
+
+    return _json_response({
+        "status": status,
+        "provider": provider,
+        "config": {
+            "endpoint": endpoint or "(not set)",
+            "deployment": deployment or "(not set)",
+            "apiVersion": api_ver or "(using default)",
+        },
+        "issues": issues,
+    })

@@ -19,6 +19,7 @@ Required env vars (set ONE of the two providers):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -156,6 +157,57 @@ SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 # OpenAI client factory
 # ─────────────────────────────────────────────────────────────
 
+_API_VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(-preview)?$")
+
+
+def _validate_azure_config(endpoint: str, deployment: str, api_version: str) -> None:
+    """Validate Azure OpenAI configuration values and log warnings for common mistakes."""
+
+    # ── Endpoint validation ───────────────────────────────────
+    if not endpoint.startswith("https://"):
+        raise RuntimeError(
+            f"AZURE_OPENAI_ENDPOINT must start with 'https://'. Current value: {endpoint}"
+        )
+
+    # Strip trailing path segments that users sometimes copy by mistake
+    if endpoint.rstrip("/").endswith("/openai"):
+        raise RuntimeError(
+            "AZURE_OPENAI_ENDPOINT should be the base URL (e.g. "
+            "'https://MY-RESOURCE.openai.azure.com'), not ending with '/openai'. "
+            f"Current value: {endpoint}"
+        )
+
+    if not re.search(r"\.(openai\.azure\.com|cognitiveservices\.azure\.com)", endpoint):
+        logger.warning(
+            "AZURE_OPENAI_ENDPOINT does not look like a standard Azure OpenAI URL "
+            "(expected *.openai.azure.com or *.cognitiveservices.azure.com). "
+            "endpoint=%s – if this is a proxy or custom domain, this warning can be ignored.",
+            endpoint,
+        )
+
+    # ── Deployment name validation ────────────────────────────
+    if " " in deployment or "/" in deployment or "\\" in deployment:
+        raise RuntimeError(
+            "AZURE_OPENAI_DEPLOYMENT_NAME must not contain spaces or slashes. "
+            f"Current value: '{deployment}'"
+        )
+
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", deployment):
+        logger.warning(
+            "AZURE_OPENAI_DEPLOYMENT_NAME '%s' contains unusual characters. "
+            "Typical names are alphanumeric with hyphens (e.g. 'gpt-4o-mini').",
+            deployment,
+        )
+
+    # ── API version validation ────────────────────────────────
+    if not _API_VERSION_RE.match(api_version):
+        logger.warning(
+            "AZURE_OPENAI_API_VERSION '%s' does not match expected pattern "
+            "(YYYY-MM-DD or YYYY-MM-DD-preview). This may cause 404 errors.",
+            api_version,
+        )
+
+
 def _get_client() -> tuple[Any, str]:
     """Build and return an async OpenAI client and model/deployment name."""
     azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip().rstrip("/")
@@ -174,10 +226,19 @@ def _get_client() -> tuple[Any, str]:
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
         api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2025-04-01-preview").strip()
 
+        # Validate configuration before building the client
+        _validate_azure_config(azure_endpoint, deployment, api_version)
+
+        expected_url = (
+            f"{azure_endpoint}/openai/deployments/{deployment}"
+            f"/chat/completions?api-version={api_version}"
+        )
         logger.info(
-            "Azure OpenAI config: endpoint=%s deployment=%s api_version=%s auth=%s",
+            "Azure OpenAI config: endpoint=%s deployment=%s api_version=%s auth=%s "
+            "expected_url=%s",
             azure_endpoint, deployment, api_version,
             "api_key" if api_key else "managed_identity",
+            expected_url,
         )
 
         if api_key:
@@ -579,14 +640,35 @@ async def run_flow_agent(
 
     raw = ""
     MAX_ITERATIONS = 10
+    _NOT_FOUND_RETRIES = 2
+    _RETRY_DELAY_SECS = 2
 
-    for _ in range(MAX_ITERATIONS):
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=_TOOLS_SCHEMA,
-            tool_choice="auto",
-        )
+    for iteration in range(MAX_ITERATIONS):
+        # Retry logic: newly provisioned deployments may briefly return 404
+        last_err = None
+        for attempt in range(_NOT_FOUND_RETRIES + 1):
+            try:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    tools=_TOOLS_SCHEMA,
+                    tool_choice="auto",
+                )
+                break  # success
+            except Exception as exc:
+                err_str = str(exc)
+                if "404" in err_str and attempt < _NOT_FOUND_RETRIES:
+                    logger.warning(
+                        "Azure OpenAI returned 404 (attempt %d/%d), "
+                        "retrying in %ds – deployment may still be provisioning…",
+                        attempt + 1, _NOT_FOUND_RETRIES + 1, _RETRY_DELAY_SECS,
+                    )
+                    await asyncio.sleep(_RETRY_DELAY_SECS)
+                    last_err = exc
+                    continue
+                raise  # non-404 or retries exhausted
+        else:
+            raise last_err  # type: ignore[misc]
 
         choice = response.choices[0]
         msg = choice.message
