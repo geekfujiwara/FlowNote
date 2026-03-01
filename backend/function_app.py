@@ -96,6 +96,7 @@ def _inject_span_attributes(mod_path: str) -> None:
         pass
 
 for _otel_path in (
+    'opentelemetry.semconv_ai',
     'opentelemetry.semconv.ai',
     'opentelemetry.semconv.trace',
     'opentelemetry.semconv',
@@ -109,6 +110,7 @@ import importlib.machinery as _mach
 
 class _SemconvHook:
     _TARGETS = frozenset({
+        'opentelemetry.semconv_ai',
         'opentelemetry.semconv.ai',
         'opentelemetry.semconv.trace',
     })
@@ -410,8 +412,8 @@ async def debug_otel(req: func.HttpRequest) -> func.HttpResponse:
 
     info["sys_modules_otel"] = sorted(k for k in _s.modules if "otel" in k or "semconv" in k)
 
-    # Check SpanAttributes in semconv.ai
-    for mod_path in ["opentelemetry.semconv.ai", "opentelemetry.semconv.trace"]:
+    # Check SpanAttributes in semconv modules
+    for mod_path in ["opentelemetry.semconv_ai", "opentelemetry.semconv.ai", "opentelemetry.semconv.trace"]:
         try:
             m = importlib.import_module(mod_path)
             sa = getattr(m, "SpanAttributes", None)
