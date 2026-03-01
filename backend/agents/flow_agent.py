@@ -158,6 +158,18 @@ SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 # ─────────────────────────────────────────────────────────────
 
 _API_VERSION_RE = re.compile(r"^\d{4}-\d{2}-\d{2}(-preview)?$")
+_NOT_FOUND_RETRIES = 2
+_NOT_FOUND_RETRY_DELAY_SECS = 2
+
+
+def _is_not_found_error(exc: Exception) -> bool:
+    """Return True if the exception represents an HTTP 404 / Resource not found error."""
+    from openai import NotFoundError  # type: ignore
+
+    if isinstance(exc, NotFoundError):
+        return True
+    err_str = str(exc)
+    return "404" in err_str and "not found" in err_str.lower()
 
 
 def _validate_azure_config(endpoint: str, deployment: str, api_version: str) -> None:
@@ -640,12 +652,10 @@ async def run_flow_agent(
 
     raw = ""
     MAX_ITERATIONS = 10
-    _NOT_FOUND_RETRIES = 2
-    _RETRY_DELAY_SECS = 2
 
     for iteration in range(MAX_ITERATIONS):
         # Retry logic: newly provisioned deployments may briefly return 404
-        last_err = None
+        last_err: Exception | None = None
         for attempt in range(_NOT_FOUND_RETRIES + 1):
             try:
                 response = await client.chat.completions.create(
@@ -656,19 +666,20 @@ async def run_flow_agent(
                 )
                 break  # success
             except Exception as exc:
-                err_str = str(exc)
-                if "404" in err_str and attempt < _NOT_FOUND_RETRIES:
+                if _is_not_found_error(exc) and attempt < _NOT_FOUND_RETRIES:
                     logger.warning(
                         "Azure OpenAI returned 404 (attempt %d/%d), "
                         "retrying in %ds – deployment may still be provisioning…",
-                        attempt + 1, _NOT_FOUND_RETRIES + 1, _RETRY_DELAY_SECS,
+                        attempt + 1, _NOT_FOUND_RETRIES + 1, _NOT_FOUND_RETRY_DELAY_SECS,
                     )
-                    await asyncio.sleep(_RETRY_DELAY_SECS)
+                    await asyncio.sleep(_NOT_FOUND_RETRY_DELAY_SECS)
                     last_err = exc
                     continue
                 raise  # non-404 or retries exhausted
         else:
-            raise last_err  # type: ignore[misc]
+            # All retry attempts exhausted without success
+            assert last_err is not None  # guaranteed by the loop logic
+            raise last_err
 
         choice = response.choices[0]
         msg = choice.message

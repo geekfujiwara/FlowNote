@@ -264,8 +264,17 @@ async def agent_chat(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:
         logger.exception("Unexpected error in agent_chat")
         err_str = str(exc)
-        # Provide actionable guidance for common Azure OpenAI errors
-        if "404" in err_str:
+        # Provide actionable guidance for common Azure OpenAI 404 errors
+        is_404 = False
+        try:
+            from openai import NotFoundError
+            is_404 = isinstance(exc, NotFoundError)
+        except ImportError:
+            pass
+        if not is_404:
+            is_404 = "404" in err_str and "not found" in err_str.lower()
+
+        if is_404:
             endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "(not set)")
             deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "(not set)")
             api_ver = os.environ.get("AZURE_OPENAI_API_VERSION", "(not set)")
