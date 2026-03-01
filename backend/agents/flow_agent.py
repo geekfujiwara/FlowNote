@@ -1,8 +1,8 @@
 """
-FlowNote AI – Agent Framework Python backend.
+FlowNote AI – OpenAI-powered Python backend.
 
-Uses Microsoft Agent Framework (agent-framework package) to interpret user
-requests and produce structured Suggestion objects for the FlowNote frontend.
+Uses the openai library to interpret user requests and produce structured
+Suggestion objects for the FlowNote frontend.
 
 Required env vars (set ONE of the two providers):
 
@@ -10,7 +10,7 @@ Required env vars (set ONE of the two providers):
     AZURE_OPENAI_ENDPOINT         e.g. https://my-resource.openai.azure.com
     AZURE_OPENAI_DEPLOYMENT_NAME  default: gpt-4o-mini
     AZURE_OPENAI_API_KEY          optional; omit to use DefaultAzureCredential
-    AZURE_OPENAI_API_VERSION      default: 2024-05-01-preview
+    AZURE_OPENAI_API_VERSION      default: 2024-12-01-preview
 
   OpenAI:
     OPENAI_API_KEY
@@ -26,7 +26,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -152,133 +152,49 @@ If the request is unclear or no change is needed, return the original markdown w
 # Keep a module-level alias so tests / other modules can reference SYSTEM_PROMPT
 SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 
-
 # ─────────────────────────────────────────────────────────────
-# OTEL shim – module level (runs when flow_agent is imported)
-# This mirrors the shim in function_app.py and guards against the case where
-# agent_framework's instrumentation code is imported later in _create_agent().
-# We also walk all already-loaded modules to patch stale SpanAttributes
-# bindings created by `from opentelemetry.semconv.ai import SpanAttributes`.
-# ─────────────────────────────────────────────────────────────
-import sys as _sys_fa
-import types as _types_fa
-import importlib.machinery as _mach_fa
-
-class _PermMetaFA(type):
-    def __getattr__(cls, name: str) -> str:
-        return name.lower().replace('_', '.')
-
-_PSA_FA = _PermMetaFA('SpanAttributes', (), {
-    'LLM_REQUEST_MODEL':            'llm.request.model',
-    'LLM_RESPONSE_MODEL':           'llm.response.model',
-    'LLM_VENDOR':                   'llm.vendor',
-    'LLM_REQUEST_TYPE':             'llm.request.type',
-    'LLM_REQUEST_MAX_TOKENS':       'llm.request.max_tokens',
-    'LLM_TEMPERATURE':              'llm.temperature',
-    'LLM_TOP_P':                    'llm.top_p',
-    'LLM_USAGE_PROMPT_TOKENS':      'llm.usage.prompt_tokens',
-    'LLM_USAGE_COMPLETION_TOKENS':  'llm.usage.completion_tokens',
-    'LLM_USAGE_TOTAL_TOKENS':       'llm.usage.total_tokens',
-    'LLM_STREAM':                   'llm.is_streaming',
-})
-
-def _patch_semconv_fa(mod_path: str) -> None:
-    try:
-        import importlib as _il
-        _mod = _il.import_module(mod_path)
-        _mod.SpanAttributes = _PSA_FA
-    except ImportError:
-        _fm = _types_fa.ModuleType(mod_path)
-        _fm.SpanAttributes = _PSA_FA  # type: ignore
-        _sys_fa.modules[mod_path] = _fm
-        _parts = mod_path.rsplit('.', 1)
-        if len(_parts) == 2 and _parts[0] in _sys_fa.modules:
-            setattr(_sys_fa.modules[_parts[0]], _parts[1], _fm)
-    except Exception:
-        pass
-
-for _mp_fa in ('opentelemetry.semconv_ai', 'opentelemetry.semconv.ai', 'opentelemetry.semconv.trace', 'opentelemetry.semconv'):
-    _patch_semconv_fa(_mp_fa)
-
-# Import hook: for modules not yet loaded
-class _SemconvHookFA:
-    _TARGETS = frozenset({'opentelemetry.semconv_ai', 'opentelemetry.semconv.ai', 'opentelemetry.semconv.trace'})
-    def find_spec(self, fullname, path, target=None):  # noqa: ARG002
-        if fullname not in self._TARGETS or fullname in _sys_fa.modules:
-            return None
-        class _L:
-            def create_module(self, spec):
-                mod = _types_fa.ModuleType(spec.name)
-                mod.SpanAttributes = _PSA_FA  # type: ignore
-                return mod
-            def exec_module(self, module): pass
-        return _mach_fa.ModuleSpec(fullname, _L())
-
-_sys_fa.meta_path.insert(0, _SemconvHookFA())
-
-# Exhaustive walk: fix stale bindings in already-imported modules
-for _m_fa in list(_sys_fa.modules.values()):
-    if _m_fa is None:
-        continue
-    try:
-        _sa_fa = vars(_m_fa).get('SpanAttributes')
-        if _sa_fa is not None and not isinstance(type(_sa_fa), _PermMetaFA):
-            _m_fa.SpanAttributes = _PSA_FA
-    except Exception:
-        pass
-
-
-# ─────────────────────────────────────────────────────────────
-# Agent factory
+# OpenAI client factory
 # ─────────────────────────────────────────────────────────────
 
-def _create_agent(tools: list | None = None, instructions: str | None = None) -> Any:  # type: Agent
-    """Build and return an Agent Framework Agent from environment variables."""
-    # Re-run exhaustive walk here too, in case agent_framework was imported
-    # between module load and first call (e.g. eager worker initialization).
-    for _m in list(_sys_fa.modules.values()):
-        if _m is None:
-            continue
-        try:
-            _sa = vars(_m).get('SpanAttributes')
-            if _sa is not None and not isinstance(type(_sa), _PermMetaFA):
-                _m.SpanAttributes = _PSA_FA
-        except Exception:
-            pass
+def _get_client() -> tuple[Any, str]:
+    """Build and return an async OpenAI client and model/deployment name."""
     azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
     if azure_endpoint:
-        from agent_framework.azure import AzureOpenAIResponsesClient  # type: ignore
+        from openai import AsyncAzureOpenAI  # type: ignore
 
         deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
 
         if api_key:
-            client = AzureOpenAIResponsesClient(
-                endpoint=azure_endpoint,
-                deployment_name=deployment,
+            client = AsyncAzureOpenAI(
+                azure_endpoint=azure_endpoint,
                 api_key=api_key,
-                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-05-01-preview"),
+                api_version=api_version,
             )
         else:
             # Passwordless: Managed Identity / az login
-            from azure.identity import DefaultAzureCredential  # type: ignore
+            from azure.identity import DefaultAzureCredential, get_bearer_token_provider  # type: ignore
 
-            client = AzureOpenAIResponsesClient(
-                endpoint=azure_endpoint,
-                deployment_name=deployment,
-                credential=DefaultAzureCredential(),
-                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-05-01-preview"),
+            token_provider = get_bearer_token_provider(
+                DefaultAzureCredential(),
+                "https://cognitiveservices.azure.com/.default",
             )
+            client = AsyncAzureOpenAI(
+                azure_endpoint=azure_endpoint,
+                azure_ad_token_provider=token_provider,
+                api_version=api_version,
+            )
+        return client, deployment
 
     elif openai_key:
-        from agent_framework.openai import OpenAIResponsesClient  # type: ignore
+        from openai import AsyncOpenAI  # type: ignore
 
-        client = OpenAIResponsesClient(
-            api_key=openai_key,
-            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-        )
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        client = AsyncOpenAI(api_key=openai_key)
+        return client, model
 
     else:
         raise RuntimeError(
@@ -287,14 +203,120 @@ def _create_agent(tools: list | None = None, instructions: str | None = None) ->
             "or OPENAI_API_KEY in local.settings.json."
         )
 
-    from agent_framework import ChatAgent  # type: ignore
 
-    return ChatAgent(
-        chat_client=client,
-        name="FlowNoteAgent",
-        instructions=instructions or BASE_SYSTEM_PROMPT,
-        tools=tools or [],
-    )
+# ─────────────────────────────────────────────────────────────
+# OpenAI function-calling tool schemas
+# ─────────────────────────────────────────────────────────────
+
+_TOOLS_SCHEMA: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "add_node",
+            "description": "Add a new node to the flow diagram.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_id": {"type": "string", "description": "Unique identifier (lowercase, no spaces)."},
+                    "label":   {"type": "string", "description": "Display label shown inside the node."},
+                    "node_type": {
+                        "type": "string",
+                        "enum": ["default", "input", "output", "selector"],
+                        "description": "One of 'default', 'input', 'output', 'selector'.",
+                    },
+                },
+                "required": ["node_id", "label"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remove_node",
+            "description": "Remove a node and all edges connected to it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_id": {"type": "string", "description": "ID of the node to remove."},
+                },
+                "required": ["node_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_edge",
+            "description": "Add a directed edge between two nodes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source node ID."},
+                    "target": {"type": "string", "description": "Target node ID."},
+                    "label":  {"type": "string", "description": "Optional label on the edge."},
+                },
+                "required": ["source", "target"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "remove_edge",
+            "description": "Remove an edge between two nodes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source node ID."},
+                    "target": {"type": "string", "description": "Target node ID."},
+                },
+                "required": ["source", "target"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "replace_flow",
+            "description": "Completely replace the flow with a new set of nodes and edges.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nodes_json": {"type": "string", "description": "JSON array of node objects with id, label, type."},
+                    "edges_json": {"type": "string", "description": "JSON array of edge objects with source, target, and optional label."},
+                },
+                "required": ["nodes_json", "edges_json"],
+            },
+        },
+    },
+]
+
+
+def _call_tool(plugin: "FlowEditorPlugin", name: str, args: dict, trace_log: list) -> str:
+    """Dispatch a tool call to the FlowEditorPlugin and record it in trace_log."""
+    t0 = time.perf_counter()
+    if name == "add_node":
+        result = plugin.add_node(args.get("node_id", ""), args.get("label", ""), args.get("node_type", "default"))
+    elif name == "remove_node":
+        result = plugin.remove_node(args.get("node_id", ""))
+    elif name == "add_edge":
+        result = plugin.add_edge(args.get("source", ""), args.get("target", ""), args.get("label", ""))
+    elif name == "remove_edge":
+        result = plugin.remove_edge(args.get("source", ""), args.get("target", ""))
+    elif name == "replace_flow":
+        result = plugin.replace_flow(args.get("nodes_json", "[]"), args.get("edges_json", "[]"))
+    else:
+        result = f"Unknown tool: {name}"
+    trace_log.append({
+        "seq": len(trace_log) + 1,
+        "type": "tool_call",
+        "tool": name,
+        "args": args,
+        "result": result,
+        "durationMs": int((time.perf_counter() - t0) * 1000),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
@@ -303,7 +325,7 @@ def _create_agent(tools: list | None = None, instructions: str | None = None) ->
 
 class FlowEditorPlugin:
     """
-    Agent Framework tools that let the agent manipulate the flow.
+    Tools that let the agent manipulate the flow.
     The plugin holds mutable `nodes` and `edges` lists.
     """
 
@@ -496,7 +518,7 @@ async def run_flow_agent(
     context: dict | None = None,
 ) -> dict:
     """
-    Run the Agent Framework agent and return a Suggestion dict compatible
+    Run the OpenAI-powered agent and return a Suggestion dict compatible
     with the FlowNote frontend's Suggestion TypeScript type.
     """
     run_start = time.perf_counter()
@@ -508,86 +530,7 @@ async def run_flow_agent(
         edges=[dict(e) for e in orig_edges],
     )
 
-    # ── Trace collector ───────────────────────────────────────
     trace_log: list[dict] = []
-
-    def _trace(tool_name: str, args: dict, result: str, duration_ms: int) -> None:
-        trace_log.append({
-            "seq": len(trace_log) + 1,
-            "type": "tool_call",
-            "tool": tool_name,
-            "args": args,
-            "result": result,
-            "durationMs": duration_ms,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-
-    # ── Expose FlowEditorPlugin methods as closure tools ──────
-    # Agent Framework passes tools as a list of callables with Annotated params.
-    # We wrap the plugin's instance methods so the agent can call them.
-
-    def add_node(
-        node_id: Annotated[str, "Unique identifier (lowercase, no spaces)."],
-        label: Annotated[str, "Display label shown inside the node."],
-        node_type: Annotated[
-            str, "One of 'default', 'input', 'output', 'selector'."
-        ] = "default",
-    ) -> str:
-        """Add a new node to the flow diagram."""
-        t0 = time.perf_counter()
-        result = plugin.add_node(node_id, label, node_type)
-        _trace("add_node", {"node_id": node_id, "label": label, "node_type": node_type}, result, int((time.perf_counter() - t0) * 1000))
-        return result
-
-    def remove_node(
-        node_id: Annotated[str, "ID of the node to remove."],
-    ) -> str:
-        """Remove a node and all edges connected to it."""
-        t0 = time.perf_counter()
-        result = plugin.remove_node(node_id)
-        _trace("remove_node", {"node_id": node_id}, result, int((time.perf_counter() - t0) * 1000))
-        return result
-
-    def add_edge(
-        source: Annotated[str, "Source node ID."],
-        target: Annotated[str, "Target node ID."],
-        label: Annotated[str, "Optional label on the edge."] = "",
-    ) -> str:
-        """Add a directed edge between two nodes."""
-        t0 = time.perf_counter()
-        result = plugin.add_edge(source, target, label)
-        _trace("add_edge", {"source": source, "target": target, "label": label}, result, int((time.perf_counter() - t0) * 1000))
-        return result
-
-    def remove_edge(
-        source: Annotated[str, "Source node ID."],
-        target: Annotated[str, "Target node ID."],
-    ) -> str:
-        """Remove an edge between two nodes."""
-        t0 = time.perf_counter()
-        result = plugin.remove_edge(source, target)
-        _trace("remove_edge", {"source": source, "target": target}, result, int((time.perf_counter() - t0) * 1000))
-        return result
-
-    def replace_flow(
-        nodes_json: Annotated[
-            str, "JSON array of node objects with id, label, type."
-        ],
-        edges_json: Annotated[
-            str,
-            "JSON array of edge objects with source, target, and optional label.",
-        ],
-    ) -> str:
-        """Completely replace the flow with a new set of nodes and edges."""
-        t0 = time.perf_counter()
-        result = plugin.replace_flow(nodes_json, edges_json)
-        try:
-            n_nodes = len(json.loads(nodes_json))
-            n_edges = len(json.loads(edges_json))
-        except Exception:
-            n_nodes = n_edges = "?"
-        _trace("replace_flow", {"nodes_count": n_nodes, "edges_count": n_edges}, result, int((time.perf_counter() - t0) * 1000))
-        return result
 
     # ── Build agent instructions ──────────────────────────────
     # If the frontend supplies a template-specific systemPrompt, inject it
@@ -605,11 +548,6 @@ async def run_flow_agent(
     else:
         combined_instructions = BASE_SYSTEM_PROMPT
 
-    agent = _create_agent(
-        tools=[add_node, remove_node, add_edge, remove_edge, replace_flow],
-        instructions=combined_instructions,
-    )
-
     user_prompt = (
         f"<current_flow_markdown>\n{markdown}\n</current_flow_markdown>\n\n"
         f"<user_request>\n{message}\n</user_request>\n\n"
@@ -620,8 +558,47 @@ async def run_flow_agent(
     logger.info("Running FlowNote agent | message=%r | nodes=%d edges=%d | template=%s",
                 message, len(orig_nodes), len(orig_edges), template_id or "none")
 
-    result = await agent.run(user_prompt)
-    raw: str = result.text if hasattr(result, "text") and result.text else str(result)
+    client, model = _get_client()
+
+    messages: list[dict] = [
+        {"role": "system", "content": combined_instructions},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    raw = ""
+    MAX_ITERATIONS = 10
+    for _ in range(MAX_ITERATIONS):
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=_TOOLS_SCHEMA,
+            tool_choice="auto",
+        )
+
+        choice = response.choices[0]
+        msg = choice.message
+
+        # Append assistant message to conversation history
+        assistant_dict: dict = {"role": "assistant", "content": msg.content or ""}
+        if msg.tool_calls:
+            assistant_dict["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]
+        messages.append(assistant_dict)
+
+        if choice.finish_reason == "tool_calls" and msg.tool_calls:
+            for tc in msg.tool_calls:
+                args = json.loads(tc.function.arguments or "{}")
+                result = _call_tool(plugin, tc.function.name, args, trace_log)
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+        else:
+            raw = msg.content or ""
+            break
 
     logger.debug("Agent raw response: %s", raw[:500])
 
