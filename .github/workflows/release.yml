@@ -306,12 +306,11 @@ jobs:
             --exclude "*.test.py" \
             --exclude "e2e-results/*"
           cd ..
-          az functionapp deploy \
+          az functionapp deployment source config-zip \
             --name "${{ env.FUNCTION_APP_NAME }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
-            --src-path func-package.zip \
-            --type zip
+            --src func-package.zip
 
       - name: Configure Azure OpenAI app settings
         env:
