@@ -1,8 +1,8 @@
 """
 FlowNote AI – OpenAI-powered Python backend.
 
-Uses the openai library to interpret user requests and produce structured
-Suggestion objects for the FlowNote frontend.
+Uses the openai Responses API to interpret user requests and produce
+structured Suggestion objects for the FlowNote frontend.
 
 Required env vars (set ONE of the two providers):
 
@@ -10,7 +10,7 @@ Required env vars (set ONE of the two providers):
     AZURE_OPENAI_ENDPOINT         e.g. https://my-resource.openai.azure.com
     AZURE_OPENAI_DEPLOYMENT_NAME  default: gpt-4o-mini
     AZURE_OPENAI_API_KEY          optional; omit to use DefaultAzureCredential
-    AZURE_OPENAI_API_VERSION      default: 2024-12-01-preview
+    AZURE_OPENAI_API_VERSION      default: 2025-03-01-preview
 
   OpenAI:
     OPENAI_API_KEY
@@ -166,7 +166,7 @@ def _get_client() -> tuple[Any, str]:
 
         deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
-        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2025-03-01-preview")
 
         if api_key:
             client = AsyncAzureOpenAI(
@@ -211,82 +211,72 @@ def _get_client() -> tuple[Any, str]:
 _TOOLS_SCHEMA: list[dict] = [
     {
         "type": "function",
-        "function": {
-            "name": "add_node",
-            "description": "Add a new node to the flow diagram.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "node_id": {"type": "string", "description": "Unique identifier (lowercase, no spaces)."},
-                    "label":   {"type": "string", "description": "Display label shown inside the node."},
-                    "node_type": {
-                        "type": "string",
-                        "enum": ["default", "input", "output", "selector"],
-                        "description": "One of 'default', 'input', 'output', 'selector'.",
-                    },
+        "name": "add_node",
+        "description": "Add a new node to the flow diagram.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "node_id": {"type": "string", "description": "Unique identifier (lowercase, no spaces)."},
+                "label":   {"type": "string", "description": "Display label shown inside the node."},
+                "node_type": {
+                    "type": "string",
+                    "enum": ["default", "input", "output", "selector"],
+                    "description": "One of 'default', 'input', 'output', 'selector'.",
                 },
-                "required": ["node_id", "label"],
             },
+            "required": ["node_id", "label"],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "remove_node",
-            "description": "Remove a node and all edges connected to it.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "node_id": {"type": "string", "description": "ID of the node to remove."},
-                },
-                "required": ["node_id"],
+        "name": "remove_node",
+        "description": "Remove a node and all edges connected to it.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "node_id": {"type": "string", "description": "ID of the node to remove."},
             },
+            "required": ["node_id"],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "add_edge",
-            "description": "Add a directed edge between two nodes.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "source": {"type": "string", "description": "Source node ID."},
-                    "target": {"type": "string", "description": "Target node ID."},
-                    "label":  {"type": "string", "description": "Optional label on the edge."},
-                },
-                "required": ["source", "target"],
+        "name": "add_edge",
+        "description": "Add a directed edge between two nodes.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "Source node ID."},
+                "target": {"type": "string", "description": "Target node ID."},
+                "label":  {"type": "string", "description": "Optional label on the edge."},
             },
+            "required": ["source", "target"],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "remove_edge",
-            "description": "Remove an edge between two nodes.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "source": {"type": "string", "description": "Source node ID."},
-                    "target": {"type": "string", "description": "Target node ID."},
-                },
-                "required": ["source", "target"],
+        "name": "remove_edge",
+        "description": "Remove an edge between two nodes.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "Source node ID."},
+                "target": {"type": "string", "description": "Target node ID."},
             },
+            "required": ["source", "target"],
         },
     },
     {
         "type": "function",
-        "function": {
-            "name": "replace_flow",
-            "description": "Completely replace the flow with a new set of nodes and edges.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "nodes_json": {"type": "string", "description": "JSON array of node objects with id, label, type."},
-                    "edges_json": {"type": "string", "description": "JSON array of edge objects with source, target, and optional label."},
-                },
-                "required": ["nodes_json", "edges_json"],
+        "name": "replace_flow",
+        "description": "Completely replace the flow with a new set of nodes and edges.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "nodes_json": {"type": "string", "description": "JSON array of node objects with id, label, type."},
+                "edges_json": {"type": "string", "description": "JSON array of edge objects with source, target, and optional label."},
             },
+            "required": ["nodes_json", "edges_json"],
         },
     },
 ]
@@ -560,45 +550,48 @@ async def run_flow_agent(
 
     client, model = _get_client()
 
-    messages: list[dict] = [
-        {"role": "system", "content": combined_instructions},
-        {"role": "user", "content": user_prompt},
-    ]
+    input_items: list = [{"role": "user", "content": user_prompt}]
 
     raw = ""
     MAX_ITERATIONS = 10
+
+    response = await client.responses.create(
+        model=model,
+        instructions=combined_instructions,
+        input=input_items,
+        tools=_TOOLS_SCHEMA,
+        tool_choice="auto",
+    )
+
     for _ in range(MAX_ITERATIONS):
-        response = await client.chat.completions.create(
+        tool_calls = [item for item in response.output if item.type == "function_call"]
+
+        if not tool_calls:
+            # Extract text from message output items
+            for item in response.output:
+                if item.type == "message":
+                    for part in item.content:
+                        if hasattr(part, "text"):
+                            raw += part.text
+            break
+
+        tool_outputs: list = []
+        for tc in tool_calls:
+            args = json.loads(tc.arguments)
+            result = _call_tool(plugin, tc.name, args, trace_log)
+            tool_outputs.append({
+                "type": "function_call_output",
+                "call_id": tc.call_id,
+                "output": result,
+            })
+
+        response = await client.responses.create(
             model=model,
-            messages=messages,
+            previous_response_id=response.id,
+            input=tool_outputs,
             tools=_TOOLS_SCHEMA,
             tool_choice="auto",
         )
-
-        choice = response.choices[0]
-        msg = choice.message
-
-        # Append assistant message to conversation history
-        assistant_dict: dict = {"role": "assistant", "content": msg.content or ""}
-        if msg.tool_calls:
-            assistant_dict["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": tc.type,
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in msg.tool_calls
-            ]
-        messages.append(assistant_dict)
-
-        if choice.finish_reason == "tool_calls" and msg.tool_calls:
-            for tc in msg.tool_calls:
-                args = json.loads(tc.function.arguments or "{}")
-                result = _call_tool(plugin, tc.function.name, args, trace_log)
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
-        else:
-            raw = msg.content or ""
-            break
 
     logger.debug("Agent raw response: %s", raw[:500])
 
