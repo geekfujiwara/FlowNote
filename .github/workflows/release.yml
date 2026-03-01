@@ -4,6 +4,9 @@
 #
 # Required GitHub Secrets:
 #   AZURE_CREDENTIALS                  Service principal JSON
+#   AZURE_SUBSCRIPTION_ID              Azure subscription ID
+#   AZURE_RESOURCE_GROUP               Resource group name (e.g. rg-flownote)
+#   AZURE_FUNCTIONAPP_NAME             Function App name (e.g. flownote-prod-func)
 #   AZURE_STATIC_WEB_APPS_API_TOKEN    SWA deploy token (fetched from Azure if AZURE_CREDENTIALS is set)
 #   VITE_API_BASE_URL                  Azure Functions URL
 #   LOGIN_PASSWORD                     Plain-text login password (hashed to SHA-256 at build time)
@@ -29,9 +32,9 @@ on:
   workflow_dispatch:
 
 env:
-  RESOURCE_GROUP:        rg-flownote
+  RESOURCE_GROUP:        ${{ secrets.AZURE_RESOURCE_GROUP }}
   SUBSCRIPTION_ID:       ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  FUNCTION_APP_NAME:     flownote-prod-func
+  FUNCTION_APP_NAME:     ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
   SWA_NAME:              flownote-prod-swa
   # Storage account name mirrors Bicep: take(replace('${prefix}${environment}st','-',''),24)
   # prefix=flownote, environment=prod → flownoteprodst
@@ -385,6 +388,34 @@ jobs:
           app-name: ${{ env.FUNCTION_APP_NAME }}
           package: func-package.zip
           # No publish-profile needed – Azure Login (above) provides RBAC credentials.
+
+      - name: Configure Function App CORS
+        # Ensure CORS wildcard is set on the deployed Function App on every release.
+        # The siteConfig.cors from Bicep is only applied when the infra workflow runs;
+        # this step guarantees the setting is always current after a code-only deploy.
+        # Both platform CORS (this step) and in-code CORS headers (_CORS_HEADERS in
+        # function_app.py) are kept as defense-in-depth: platform handles preflight
+        # during cold starts; code handles it for subsequent warm requests.
+        run: |
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
+          # Add wildcard CORS origin (idempotent – safe to re-run)
+          az functionapp cors add \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --allowed-origins '*'
+          echo "✅ CORS configured: allowed-origins = *"
+
+          # Verify
+          ORIGINS=$(az functionapp cors show \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query "allowedOrigins" --output tsv 2>/dev/null || true)
+          echo "Current allowed origins: $ORIGINS"
 
       - name: Configure Azure OpenAI app settings
         env:
