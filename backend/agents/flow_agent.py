@@ -263,19 +263,12 @@ def _create_agent(tools: list | None = None, instructions: str | None = None) ->
             )
         else:
             # Passwordless: Managed Identity / az login
-            # Use get_bearer_token_provider so the Azure OpenAI SDK
-            # can call the Cognitive Services token endpoint automatically.
-            from azure.identity import DefaultAzureCredential, get_bearer_token_provider  # type: ignore
+            from azure.identity import DefaultAzureCredential  # type: ignore
 
-            _credential = DefaultAzureCredential()
-            _token_provider = get_bearer_token_provider(
-                _credential,
-                "https://cognitiveservices.azure.com/.default",
-            )
             client = AzureOpenAIResponsesClient(
                 endpoint=azure_endpoint,
                 deployment_name=deployment,
-                azure_ad_token_provider=_token_provider,
+                credential=DefaultAzureCredential(),
                 api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
             )
 
