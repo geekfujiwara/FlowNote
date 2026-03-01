@@ -324,23 +324,67 @@ jobs:
             --output none
           echo "✅ Storage public network access: Enabled (bypass: AzureServices,Logging,Metrics)"
 
-      - name: Deploy to Azure Functions
-        # az functionapp deploy uses the ARM management-plane API to upload the package
-        # directly to the deployments blob container via ARM, which avoids the Kudu-side
-        # StorageAccessibleCheck that fails with 403 when the service principal lacks
-        # direct blob storage access.
+      - name: Ensure Function App managed identity has Storage Blob Data Owner
+        # Kudu in FC1 uses the Function App's system-assigned managed identity to upload
+        # the deployment zip to the blob container. Without this role the upload returns 403.
+        # This step verifies the role exists and creates it (with 90s propagation wait) if absent.
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
             SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
           fi
-          az functionapp deploy \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+
+          # Get the Function App's managed identity principal ID
+          PRINCIPAL_ID=$(az functionapp identity show \
             --name "${{ env.FUNCTION_APP_NAME }}" \
-            --src-path func-package.zip \
-            --type zip \
-            --async true \
-            "${SUBSCRIPTION_ARGS[@]}"
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query principalId --output tsv 2>/dev/null || echo "")
+          if [ -z "$PRINCIPAL_ID" ]; then
+            echo "::error::Function App has no system-assigned managed identity."
+            exit 1
+          fi
+          echo "Function App principal ID: $PRINCIPAL_ID"
+
+          # Get storage resource ID
+          STORAGE_ID=$(az storage account show \
+            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query id --output tsv)
+
+          # Check if role already exists
+          EXISTING=$(az role assignment list \
+            --scope "$STORAGE_ID" \
+            --assignee "$PRINCIPAL_ID" \
+            --role "Storage Blob Data Owner" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query "[0].id" --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$EXISTING" ]; then
+            echo "::warning::Storage Blob Data Owner role not found for Function App identity. Creating..."
+            az role assignment create \
+              --scope "$STORAGE_ID" \
+              --assignee "$PRINCIPAL_ID" \
+              --role "Storage Blob Data Owner" \
+              "${SUBSCRIPTION_ARGS[@]}"
+            echo "Role created. Waiting 90s for RBAC propagation..."
+            sleep 90
+          else
+            echo "✅ Storage Blob Data Owner role exists for Function App identity."
+          fi
+
+      - name: Deploy to Azure Functions
+        # Azure/functions-action@v1 uses Kudu /api/publish (OneDeploy) which is the correct
+        # deployment path for Flex Consumption (FC1). It requires:
+        #   1. publicNetworkAccess=Enabled on the storage, AND
+        #   2. Function App managed identity has Storage Blob Data Owner on the storage.
+        # Both are ensured by the preceding steps.
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: func-package.zip
+          # No publish-profile needed – Azure Login (above) provides RBAC credentials.
 
       - name: Configure Azure OpenAI app settings
         env:

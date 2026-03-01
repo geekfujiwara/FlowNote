@@ -283,6 +283,50 @@ jobs:
             --output none
           echo "✅ Storage public network access: Enabled"
 
+      - name: Ensure Function App managed identity has Storage Blob Data Owner
+        run: |
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
+
+          PRINCIPAL_ID=$(az functionapp identity show \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query principalId --output tsv 2>/dev/null || echo "")
+          if [ -z "$PRINCIPAL_ID" ]; then
+            echo "::error::Function App has no system-assigned managed identity."
+            exit 1
+          fi
+          echo "Function App principal ID: $PRINCIPAL_ID"
+
+          STORAGE_ID=$(az storage account show \
+            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query id --output tsv)
+
+          EXISTING=$(az role assignment list \
+            --scope "$STORAGE_ID" \
+            --assignee "$PRINCIPAL_ID" \
+            --role "Storage Blob Data Owner" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --query "[0].id" --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$EXISTING" ]; then
+            echo "::warning::Storage Blob Data Owner role missing. Creating..."
+            az role assignment create \
+              --scope "$STORAGE_ID" \
+              --assignee "$PRINCIPAL_ID" \
+              --role "Storage Blob Data Owner" \
+              "${SUBSCRIPTION_ARGS[@]}"
+            echo "Role created. Waiting 90s for RBAC propagation..."
+            sleep 90
+          else
+            echo "✅ Storage Blob Data Owner role exists for Function App identity."
+          fi
+
       - name: Deploy to Azure Functions
         # azure/functions-action@v1 is the officially supported action for FC1 (Flex Consumption).
         # It uses ARM-based deployment (not Kudu) and works with Azure Login RBAC credentials.
