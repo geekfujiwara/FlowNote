@@ -24,7 +24,7 @@ param repositoryUrl string = 'https://github.com/geekfujiwara/FlowNote'
 param azureOpenAiDeploymentName string = 'gpt-5-1-codex-mini'
 
 @description('Azure OpenAI API version')
-param azureOpenAiApiVersion string = 'preview'
+param azureOpenAiApiVersion string = '2024-05-01-preview'
 
 @description('Azure OpenAI model name')
 param azureOpenAiModelName string = 'gpt-5.1-codex-mini'
@@ -127,6 +127,7 @@ resource openAi 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   properties: {
     customSubDomainName: openAiAccountName
     publicNetworkAccess: 'Enabled'
+    disableLocalAuth: true  // API key auth disabled; use managed identity only
   }
 }
 
