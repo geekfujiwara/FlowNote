@@ -313,6 +313,8 @@ jobs:
         # using the Function App's managed identity. Even with bypass=AzureServices the upload
         # requires publicNetworkAccess=Enabled when no VNet service endpoint is configured.
         # This step ensures it is on before deploy and the nightly schedule can safely disable it.
+        # continue-on-error: SP may lack Storage Account Contributor; storage is pre-set to Enabled.
+        continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
@@ -331,6 +333,9 @@ jobs:
         # Kudu in FC1 uses the Function App's system-assigned managed identity to upload
         # the deployment zip to the blob container. Without this role the upload returns 403.
         # This step verifies the role exists and creates it (with 90s propagation wait) if absent.
+        # continue-on-error: SP may lack permission to read storage/role-assignments; role
+        # was already assigned manually and the deployment should succeed regardless.
+        continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
