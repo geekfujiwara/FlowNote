@@ -164,7 +164,13 @@ def _get_client() -> tuple[Any, str]:
     if azure_endpoint:
         from openai import AsyncAzureOpenAI  # type: ignore
 
-        deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini").strip()
+        deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "").strip()
+        if not deployment:
+            raise RuntimeError(
+                "AZURE_OPENAI_DEPLOYMENT_NAME is not set. "
+                "Set it to the name of your Azure OpenAI model deployment "
+                "(e.g. the value shown in Azure Portal > Azure OpenAI > Model deployments)."
+            )
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
         api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2025-04-01-preview").strip()
 
