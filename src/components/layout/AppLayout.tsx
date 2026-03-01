@@ -6,7 +6,8 @@ import { FlowCanvas } from '@/components/canvas/FlowCanvas'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { VersionHistoryPanel } from '@/components/canvas/VersionHistoryPanel'
 import { FlowMetadataPanel } from '@/components/shared/FlowMetadataPanel'
-import { Bot, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2, LayoutTemplate } from 'lucide-react'
+import { Bot, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2, LayoutTemplate, ClipboardList } from 'lucide-react'
+import { AgentLogViewer } from '@/components/chat/AgentLogViewer'
 import { AnalyticsPanel } from '@/components/analytics/AnalyticsPanel'
 import { TemplateGallery } from '@/components/templates/TemplateGallery'
 import { useMsal } from '@azure/msal-react'
@@ -24,7 +25,7 @@ export function AppLayout() {
   const sendMessageToAgent = useStore((s) => s.sendMessageToAgent)
   const [chatOpen, setChatOpen] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('agent')
-  const [rightPanel, setRightPanel] = useState<'chat' | 'history'>('chat')
+  const [rightPanel, setRightPanel] = useState<'chat' | 'history' | 'log'>('chat')
   const [analyticsOpen, setAnalyticsOpen] = useState(false)
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
   const { accounts } = useMsal()
@@ -227,10 +228,21 @@ export function AppLayout() {
                   <History className="w-3.5 h-3.5" />
                   履歴
                 </button>
+                <button
+                  onClick={() => setRightPanel('log')}
+                  className={`flex items-center gap-1.5 flex-1 justify-center py-2.5 text-xs font-medium transition-colors border-b-2 ${
+                    rightPanel === 'log'
+                      ? 'border-emerald-500 text-emerald-300'
+                      : 'border-transparent text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  <ClipboardList className="w-3.5 h-3.5" />
+                  ログ
+                </button>
               </div>
               {/* Panel content */}
               <div className="flex-1 overflow-hidden">
-                {rightPanel === 'chat' ? <ChatPanel onOpenTemplates={() => setTemplateGalleryOpen(true)} /> : <VersionHistoryPanel />}
+                {rightPanel === 'chat' ? <ChatPanel onOpenTemplates={() => setTemplateGalleryOpen(true)} /> : rightPanel === 'history' ? <VersionHistoryPanel /> : <AgentLogViewer />}
               </div>
             </div>
 

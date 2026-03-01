@@ -14,12 +14,9 @@ import {
   LayoutTemplate,
   ChevronDown,
   ChevronUp,
-  ClipboardList,
 } from 'lucide-react'
 import type { ChatMessage } from '@/types'
 import { getTemplateById } from '@/lib/templates'
-
-type PanelTab = 'chat' | 'log'
 
 interface ChatPanelProps {
   onOpenTemplates?: () => void
@@ -34,11 +31,9 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
   const clearChatMessages = useStore((s) => s.clearChatMessages)
   const activeTemplateId = useStore((s) => s.activeTemplateId)
   const systemPrompt = useStore((s) => s.systemPrompt)
-  const agentLogs = useStore((s) => s.agentLogs)
 
   const [input, setInput] = useState('')
   const [systemPromptOpen, setSystemPromptOpen] = useState(false)
-  const [tab, setTab] = useState<PanelTab>('chat')
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const activeTemplate = activeTemplateId ? getTemplateById(activeTemplateId) : null
@@ -82,7 +77,7 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
         {agentStatus === 'error' && (
           <span className="ml-auto text-xs text-red-400">エラー</span>
         )}
-        {chatMessages.length > 0 && agentStatus !== 'thinking' && tab === 'chat' && (
+        {chatMessages.length > 0 && agentStatus !== 'thinking' && (
           <button
             onClick={clearChatMessages}
             title="会話履歴をクリア"
@@ -93,42 +88,8 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
         )}
       </div>
 
-      {/* Tab switcher */}
-      <div className="flex border-b border-zinc-800 shrink-0">
-        <button
-          onClick={() => setTab('chat')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs transition-colors border-b-2 ${
-            tab === 'chat'
-              ? 'text-indigo-300 border-indigo-500'
-              : 'text-zinc-500 hover:text-zinc-300 border-transparent'
-          }`}
-        >
-          <MessageSquare className="w-3.5 h-3.5" />
-          チャット
-        </button>
-        <button
-          onClick={() => setTab('log')}
-          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs transition-colors border-b-2 ${
-            tab === 'log'
-              ? 'text-indigo-300 border-indigo-500'
-              : 'text-zinc-500 hover:text-zinc-300 border-transparent'
-          }`}
-        >
-          <ClipboardList className="w-3.5 h-3.5" />
-          ログ
-          {agentLogs.length > 0 && (
-            <span className="ml-0.5 text-[10px] bg-zinc-700 text-zinc-300 rounded-full px-1.5 py-0.5 leading-none">
-              {agentLogs.length}
-            </span>
-          )}
-        </button>
-      </div>
-
       {/* Content */}
-      {tab === 'log' ? (
-        <AgentLogViewer />
-      ) : (
-        <>
+      <>
           {/* Active template badge + system prompt */}
           {activeTemplate && (
             <div className="border-b border-zinc-800 bg-zinc-900/80 shrink-0">
@@ -229,7 +190,6 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
             <p className="text-xs text-zinc-600 mt-1.5">Enter で送信 / Shift+Enter で改行</p>
           </div>
         </>
-      )}
     </div>
   )
 }
