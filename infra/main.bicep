@@ -20,6 +20,19 @@ param pythonVersion string = '3.11'
 @description('GitHub repo URL (used for SWA metadata only)')
 param repositoryUrl string = 'https://github.com/geekfujiwara/FlowNote'
 
+@description('Azure OpenAI endpoint (leave empty to skip)')
+param azureOpenAiEndpoint string = ''
+
+@description('Azure OpenAI deployment name')
+param azureOpenAiDeploymentName string = 'gpt-4o-mini'
+
+@description('Azure OpenAI API key (leave empty to use managed identity)')
+@secure()
+param azureOpenAiApiKey string = ''
+
+@description('Azure OpenAI API version')
+param azureOpenAiApiVersion string = '2025-01-01-preview'
+
 // ── Name variables ───────────────────────────────────────────
 var suffix             = '${prefix}-${environment}'
 var storageAccountName = take(replace('${prefix}${environment}st', '-', ''), 24)
@@ -79,13 +92,22 @@ resource notesContainer 'Microsoft.Storage/storageAccounts/blobServices/containe
   }
 }
 
-// ── App Service Plan (Consumption / Linux) ───────────────────
-resource plan 'Microsoft.Web/serverfarms@2023-01-01' = {
+// ── Deployments Blob Container (Flex Consumption) ────────────
+resource deploymentsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01' = {
+  parent: blobService
+  name: 'deployments'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
+// ── App Service Plan (Flex Consumption / Linux) ─────────────
+resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: appServicePlanName
   location: location
   sku: {
-    name: 'Y1'
-    tier: 'Dynamic'
+    name: 'FC1'
+    tier: 'FlexConsumption'
   }
   kind: 'functionapp'
   properties: {
@@ -97,7 +119,7 @@ resource plan 'Microsoft.Web/serverfarms@2023-01-01' = {
 var storageConnectionString = 'DefaultEndpointsProtocol=https;AccountName=${storage.name};AccountKey=${storage.listKeys().keys[0].value};EndpointSuffix=${az.environment().suffixes.storage}'
 
 // ── Function App ─────────────────────────────────────────────
-resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
+resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
   name: functionAppName
   location: location
   kind: 'functionapp,linux'
@@ -105,8 +127,6 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
     serverFarmId: plan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'PYTHON|${pythonVersion}'
-      pythonVersion: pythonVersion
       cors: {
         allowedOrigins: ['*']
         supportCredentials: false
@@ -115,14 +135,6 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         {
           name: 'AzureWebJobsStorage'
           value: storageConnectionString
-        }
-        {
-          name: 'FUNCTIONS_EXTENSION_VERSION'
-          value: '~4'
-        }
-        {
-          name: 'FUNCTIONS_WORKER_RUNTIME'
-          value: 'python'
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
@@ -142,10 +154,42 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
           value: ''
         }
         {
-          name: 'WEBSITE_RUN_FROM_PACKAGE'
-          value: '1'
+          name: 'AZURE_OPENAI_ENDPOINT'
+          value: azureOpenAiEndpoint
+        }
+        {
+          name: 'AZURE_OPENAI_DEPLOYMENT_NAME'
+          value: azureOpenAiDeploymentName
+        }
+        {
+          name: 'AZURE_OPENAI_API_KEY'
+          value: azureOpenAiApiKey
+        }
+        {
+          name: 'AZURE_OPENAI_API_VERSION'
+          value: azureOpenAiApiVersion
         }
       ]
+    }
+    functionAppConfig: {
+      deployment: {
+        storage: {
+          type: 'blobContainer'
+          value: '${storage.properties.primaryEndpoints.blob}deployments'
+          authentication: {
+            type: 'StorageAccountConnectionString'
+            storageAccountConnectionStringName: 'AzureWebJobsStorage'
+          }
+        }
+      }
+      scaleAndConcurrency: {
+        maximumInstanceCount: 10  // cost cap
+        instanceMemoryMB: 2048
+      }
+      runtime: {
+        name: 'python'
+        version: pythonVersion
+      }
     }
   }
 }
@@ -153,7 +197,7 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
 // ── Static Web App ───────────────────────────────────────────
 resource staticWebApp 'Microsoft.Web/staticSites@2023-01-01' = {
   name: staticWebAppName
-  location: 'eastasia' // SWA has limited regions; use closest available
+  location: 'eastus2' // SWA supported region close to eastus
   sku: {
     name: 'Free'
     tier: 'Free'

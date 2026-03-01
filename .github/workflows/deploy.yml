@@ -11,12 +11,9 @@
 # If secrets are not yet configured (infra not provisioned), the deploy
 # steps are skipped gracefully – the build step always runs as a CI check.
 # ============================================================
-name: Deploy Application
+name: Deploy Application (Legacy)
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 env:

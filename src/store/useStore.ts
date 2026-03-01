@@ -308,6 +308,8 @@ export const useStore = create<FlowNoteState>()(
           role: 'agent',
           content: suggestion.summary,
           timestamp: new Date().toISOString(),
+          agentTrace: suggestion.agentTrace,
+          executionMs: suggestion.executionMs,
         }
         set((s) => ({
           chatMessages: [...s.chatMessages, agentMsg],

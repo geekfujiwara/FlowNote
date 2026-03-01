@@ -1,0 +1,298 @@
+# ============================================================
+# FlowNote – Release Pipeline
+# Triggers on push to main: ci → build → deploy frontend (SWA) + backend (Functions)
+#
+# Required GitHub Secrets:
+#   AZURE_CREDENTIALS                  Service principal JSON
+#   AZURE_STATIC_WEB_APPS_API_TOKEN    SWA deploy token (fetched from Azure if AZURE_CREDENTIALS is set)
+#   VITE_API_BASE_URL                  Azure Functions URL
+#
+# Optional Secrets:
+#   VITE_APPINSIGHTS_CONNECTION_STRING
+#   VITE_MSAL_CLIENT_ID / VITE_MSAL_TENANT_ID / VITE_MSAL_REDIRECT_URI
+#
+# If no Azure secrets are configured the workflow still runs CI (lint + test)
+# and builds in mock mode – deploy steps are skipped gracefully.
+# ============================================================
+
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  RESOURCE_GROUP:     rg-flownote
+  SUBSCRIPTION_ID:    d0b22a7f-8129-4a0d-bd5a-e8af107be62b
+  FUNCTION_APP_NAME:  flownote-prod-func
+  SWA_NAME:           flownote-prod-swa
+  NODE_VERSION:       '20'
+  PYTHON_VERSION:     '3.11'
+
+# Cancel in-progress runs triggered by the same branch
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────
+  # 1. CI – lint + type-check + unit tests
+  # ─────────────────────────────────────────────────────────
+  ci:
+    name: CI (lint · type-check · tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test -- --run
+
+  # ─────────────────────────────────────────────────────────
+  # 2. Check which deploy secrets are configured
+  # ─────────────────────────────────────────────────────────
+  check-secrets:
+    name: Check deploy secrets
+    runs-on: ubuntu-latest
+    needs: ci
+    outputs:
+      has_swa_token:    ${{ steps.chk.outputs.has_swa_token }}
+      has_azure_creds:  ${{ steps.chk.outputs.has_azure_creds }}
+      can_deploy:       ${{ steps.chk.outputs.can_deploy }}
+    steps:
+      - name: Evaluate secrets
+        id: chk
+        env:
+          SWA_TOKEN:    ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          AZURE_CREDS:  ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          HAS_SWA="false"
+          HAS_CREDS="false"
+          CAN_DEPLOY="false"
+
+          if [ -n "$SWA_TOKEN" ]; then
+            HAS_SWA="true"
+            CAN_DEPLOY="true"
+            echo "✅  AZURE_STATIC_WEB_APPS_API_TOKEN is set"
+          else
+            echo "::warning::AZURE_STATIC_WEB_APPS_API_TOKEN is not set"
+          fi
+
+          if [ -n "$AZURE_CREDS" ]; then
+            HAS_CREDS="true"
+            CAN_DEPLOY="true"
+            echo "✅  AZURE_CREDENTIALS is set"
+          else
+            echo "::warning::AZURE_CREDENTIALS is not set – Functions deploy will be skipped"
+          fi
+
+          echo "has_swa_token=$HAS_SWA"     >> "$GITHUB_OUTPUT"
+          echo "has_azure_creds=$HAS_CREDS" >> "$GITHUB_OUTPUT"
+          echo "can_deploy=$CAN_DEPLOY"     >> "$GITHUB_OUTPUT"
+
+  # ─────────────────────────────────────────────────────────
+  # 3. Build frontend
+  # ─────────────────────────────────────────────────────────
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    needs: check-secrets
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Production build (real Azure backend)
+      - name: Build – production
+        if: ${{ needs.check-secrets.outputs.can_deploy == 'true' }}
+        env:
+          VITE_USE_MOCK_API:                  'false'
+          VITE_USE_MOCK_AGENT:                'false'
+          VITE_API_BASE_URL:                  ${{ secrets.VITE_API_BASE_URL }}
+          VITE_AGENT_API_BASE_URL:            ${{ secrets.VITE_API_BASE_URL }}
+          VITE_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.VITE_APPINSIGHTS_CONNECTION_STRING }}
+          VITE_MSAL_CLIENT_ID:                ${{ secrets.VITE_MSAL_CLIENT_ID }}
+          VITE_MSAL_TENANT_ID:                ${{ secrets.VITE_MSAL_TENANT_ID }}
+          VITE_MSAL_REDIRECT_URI:             ${{ secrets.VITE_MSAL_REDIRECT_URI }}
+        run: npm run build
+
+      # Mock build (no Azure infra – artifact still stored for debugging)
+      - name: Build – mock mode (infra not provisioned)
+        if: ${{ needs.check-secrets.outputs.can_deploy != 'true' }}
+        env:
+          VITE_USE_MOCK_API:    'true'
+          VITE_USE_MOCK_AGENT:  'true'
+        run: npm run build
+
+      - name: Upload dist artifact
+        if: ${{ needs.check-secrets.outputs.can_deploy == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 1
+
+  # ─────────────────────────────────────────────────────────
+  # 4. Deploy Frontend → Azure Static Web Apps
+  # ─────────────────────────────────────────────────────────
+  deploy-frontend:
+    name: Frontend → Static Web Apps
+    runs-on: ubuntu-latest
+    needs: [check-secrets, build-frontend]
+    if: ${{ needs.check-secrets.outputs.can_deploy == 'true' }}
+    continue-on-error: true   # infra may not be provisioned yet
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      # Use stored token first
+      - name: Set SWA token (from secret)
+        if: ${{ needs.check-secrets.outputs.has_swa_token == 'true' }}
+        env:
+          TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: echo "SWA_DEPLOY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      # Login with AZURE_CREDENTIALS to fetch a fresh token (overrides above)
+      - name: Azure Login
+        if: ${{ needs.check-secrets.outputs.has_azure_creds == 'true' }}
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Refresh SWA token via Azure CLI
+        if: ${{ needs.check-secrets.outputs.has_azure_creds == 'true' }}
+        run: |
+          TOKEN=$(az staticwebapp secrets list \
+            --name "${{ env.SWA_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --subscription "${{ env.SUBSCRIPTION_ID }}" \
+            --query "properties.apiKey" \
+            --output tsv 2>/dev/null || true)
+          if [ -n "$TOKEN" ]; then
+            echo "::add-mask::$TOKEN"
+            echo "SWA_DEPLOY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+            echo "✅  Fresh SWA token obtained"
+          else
+            echo "::warning::Could not fetch SWA token from Azure"
+          fi
+
+      - name: Assert SWA token exists
+        run: |
+          if [ -z "${SWA_DEPLOY_TOKEN:-}" ]; then
+            echo "::error::No SWA deploy token available. Set AZURE_STATIC_WEB_APPS_API_TOKEN or ensure AZURE_CREDENTIALS has access to '${{ env.SWA_NAME }}'."
+            exit 1
+          fi
+
+      - name: Deploy to Static Web Apps
+        id: swa
+        continue-on-error: true
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ env.SWA_DEPLOY_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: upload
+          app_location: '/'
+          output_location: dist
+          skip_app_build: true
+
+      - name: Azure Logout
+        if: always()
+        run: az logout 2>/dev/null || true
+
+      - name: Warn on SWA failure
+        if: steps.swa.outcome == 'failure'
+        run: |
+          echo "::warning::SWA deployment failed. If infra is not yet provisioned, run 'Deploy Infrastructure' first."
+
+  # ─────────────────────────────────────────────────────────
+  # 5. Deploy Backend → Azure Functions
+  # ─────────────────────────────────────────────────────────
+  deploy-backend:
+    name: Backend → Azure Functions
+    runs-on: ubuntu-latest
+    needs: [check-secrets, ci]
+    if: ${{ needs.check-secrets.outputs.has_azure_creds == 'true' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt \
+            --target=".python_packages/lib/site-packages"
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name:                     ${{ env.FUNCTION_APP_NAME }}
+          package:                      backend
+          scm-do-build-during-deployment: false
+          enable-oryx-build:            false
+          respect-funcignore:           true
+
+      - name: Azure Logout
+        if: always()
+        run: az logout
+
+  # ─────────────────────────────────────────────────────────
+  # 6. Summary
+  # ─────────────────────────────────────────────────────────
+  summary:
+    name: Release Summary
+    runs-on: ubuntu-latest
+    needs: [ci, build-frontend, deploy-frontend, deploy-backend]
+    if: always()
+    steps:
+      - name: Print result
+        env:
+          CI_RESULT:       ${{ needs.ci.result }}
+          BUILD_RESULT:    ${{ needs.build-frontend.result }}
+          FRONTEND_RESULT: ${{ needs.deploy-frontend.result }}
+          BACKEND_RESULT:  ${{ needs.deploy-backend.result }}
+        run: |
+          echo "## Release Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Stage | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| CI (lint + test) | $CI_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Build Frontend   | $BUILD_RESULT |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Deploy Frontend  | ${FRONTEND_RESULT:-skipped} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Deploy Backend   | ${BACKEND_RESULT:-skipped} |" >> "$GITHUB_STEP_SUMMARY"

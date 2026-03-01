@@ -23,7 +23,9 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
 logger = logging.getLogger(__name__)
@@ -408,12 +410,28 @@ async def run_flow_agent(
     Run the Agent Framework agent and return a Suggestion dict compatible
     with the FlowNote frontend's Suggestion TypeScript type.
     """
+    run_start = time.perf_counter()
+
     # Parse current flow state so tools can operate on it
     orig_nodes, orig_edges = _parse_flow(markdown)
     plugin = FlowEditorPlugin(
         nodes=[dict(n) for n in orig_nodes],
         edges=[dict(e) for e in orig_edges],
     )
+
+    # ── Trace collector ───────────────────────────────────────
+    trace_log: list[dict] = []
+
+    def _trace(tool_name: str, args: dict, result: str, duration_ms: int) -> None:
+        trace_log.append({
+            "seq": len(trace_log) + 1,
+            "type": "tool_call",
+            "tool": tool_name,
+            "args": args,
+            "result": result,
+            "durationMs": duration_ms,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
 
     # ── Expose FlowEditorPlugin methods as closure tools ──────
     # Agent Framework passes tools as a list of callables with Annotated params.
@@ -427,13 +445,19 @@ async def run_flow_agent(
         ] = "default",
     ) -> str:
         """Add a new node to the flow diagram."""
-        return plugin.add_node(node_id, label, node_type)
+        t0 = time.perf_counter()
+        result = plugin.add_node(node_id, label, node_type)
+        _trace("add_node", {"node_id": node_id, "label": label, "node_type": node_type}, result, int((time.perf_counter() - t0) * 1000))
+        return result
 
     def remove_node(
         node_id: Annotated[str, "ID of the node to remove."],
     ) -> str:
         """Remove a node and all edges connected to it."""
-        return plugin.remove_node(node_id)
+        t0 = time.perf_counter()
+        result = plugin.remove_node(node_id)
+        _trace("remove_node", {"node_id": node_id}, result, int((time.perf_counter() - t0) * 1000))
+        return result
 
     def add_edge(
         source: Annotated[str, "Source node ID."],
@@ -441,14 +465,20 @@ async def run_flow_agent(
         label: Annotated[str, "Optional label on the edge."] = "",
     ) -> str:
         """Add a directed edge between two nodes."""
-        return plugin.add_edge(source, target, label)
+        t0 = time.perf_counter()
+        result = plugin.add_edge(source, target, label)
+        _trace("add_edge", {"source": source, "target": target, "label": label}, result, int((time.perf_counter() - t0) * 1000))
+        return result
 
     def remove_edge(
         source: Annotated[str, "Source node ID."],
         target: Annotated[str, "Target node ID."],
     ) -> str:
         """Remove an edge between two nodes."""
-        return plugin.remove_edge(source, target)
+        t0 = time.perf_counter()
+        result = plugin.remove_edge(source, target)
+        _trace("remove_edge", {"source": source, "target": target}, result, int((time.perf_counter() - t0) * 1000))
+        return result
 
     def replace_flow(
         nodes_json: Annotated[
@@ -460,7 +490,15 @@ async def run_flow_agent(
         ],
     ) -> str:
         """Completely replace the flow with a new set of nodes and edges."""
-        return plugin.replace_flow(nodes_json, edges_json)
+        t0 = time.perf_counter()
+        result = plugin.replace_flow(nodes_json, edges_json)
+        try:
+            n_nodes = len(json.loads(nodes_json))
+            n_edges = len(json.loads(edges_json))
+        except Exception:
+            n_nodes = n_edges = "?"
+        _trace("replace_flow", {"nodes_count": n_nodes, "edges_count": n_edges}, result, int((time.perf_counter() - t0) * 1000))
+        return result
 
     # ── Build agent instructions ──────────────────────────────
     # If the frontend supplies a template-specific systemPrompt, inject it
@@ -541,4 +579,6 @@ async def run_flow_agent(
             "changedNodeIds": changed_node_ids,
             "changedEdgeIds": changed_edge_ids,
         },
+        "agentTrace": trace_log,
+        "executionMs": int((time.perf_counter() - run_start) * 1000),
     }

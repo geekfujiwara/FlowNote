@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useStore } from '@/store/useStore'
 import { SuggestionCard } from './SuggestionCard'
+import { AgentTraceViewer } from './AgentTraceViewer'
 import {
   Bot,
   User,
@@ -203,6 +204,15 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         >
           {message.content}
         </div>
+        {/* Agent trace viewer – only for agent messages with trace data */}
+        {!isUser && message.agentTrace !== undefined && (
+          <div className="w-full px-1">
+            <AgentTraceViewer
+              trace={message.agentTrace}
+              executionMs={message.executionMs}
+            />
+          </div>
+        )}
         <span className="text-xs text-zinc-600">{time}</span>
       </div>
     </div>

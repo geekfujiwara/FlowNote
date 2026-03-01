@@ -4,7 +4,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid'
-import type { NoteItem, NoteDetail, Suggestion } from '@/types'
+import type { NoteItem, NoteDetail, Suggestion, AgentTraceEntry } from '@/types'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:7071'
@@ -166,33 +166,55 @@ function authHeaders(): Record<string, string> {
 function mockAgentResponse(message: string, currentMarkdown: string): Suggestion {
   const suggestionId = uuidv4()
   const lower = message.toLowerCase()
+  const now = new Date().toISOString()
 
   // Detect intent and produce a relevant mock markdown
   if (lower.includes('追加') || lower.includes('add') || lower.includes('ノード')) {
     const newMd = insertExtraNode(currentMarkdown)
+    const trace: AgentTraceEntry[] = [
+      { seq: 1, type: 'tool_call', tool: 'add_node', args: { node_id: 'review', label: 'レビュー', node_type: 'default' }, result: "Added default node 'review' (レビュー).", durationMs: 4, timestamp: now },
+      { seq: 2, type: 'tool_call', tool: 'add_edge', args: { source: 'process', target: 'review', label: '' }, result: 'Added edge process → review.', durationMs: 2, timestamp: now },
+      { seq: 3, type: 'tool_call', tool: 'add_edge', args: { source: 'review', target: 'end', label: '' }, result: 'Added edge review → end.', durationMs: 2, timestamp: now },
+    ]
     return {
       suggestionId,
       markdown: newMd,
       summary: 'レビューノードを追加しました。フロー中間にレビューステップを挿入しています。',
       impacts: { nodesDelta: 1, edgesDelta: 2, changedNodeIds: ['review'], changedEdgeIds: ['e-review-1', 'e-review-2'] },
+      agentTrace: trace,
+      executionMs: 1234,
     }
   }
 
   if (lower.includes('シンプル') || lower.includes('simple') || lower.includes('簡単')) {
+    const trace: AgentTraceEntry[] = [
+      { seq: 1, type: 'tool_call', tool: 'replace_flow', args: { nodes_count: 3, edges_count: 2 }, result: 'Replaced flow: 3 nodes, 2 edges.', durationMs: 8, timestamp: now },
+    ]
     return {
       suggestionId,
       markdown: SIMPLE_FLOW,
       summary: 'フローをシンプルな3ステップ構成に変更しました。',
       impacts: { nodesDelta: -2, edgesDelta: -1, changedNodeIds: [], changedEdgeIds: [] },
+      agentTrace: trace,
+      executionMs: 987,
     }
   }
 
   if (lower.includes('並行') || lower.includes('parallel')) {
+    const trace: AgentTraceEntry[] = [
+      { seq: 1, type: 'tool_call', tool: 'add_node', args: { node_id: 'processA', label: '処理A', node_type: 'default' }, result: "Added default node 'processA' (処理A).", durationMs: 3, timestamp: now },
+      { seq: 2, type: 'tool_call', tool: 'add_node', args: { node_id: 'processB', label: '処理B', node_type: 'default' }, result: "Added default node 'processB' (処理B).", durationMs: 3, timestamp: now },
+      { seq: 3, type: 'tool_call', tool: 'add_node', args: { node_id: 'merge', label: '統合', node_type: 'default' }, result: "Added default node 'merge' (統合).", durationMs: 2, timestamp: now },
+      { seq: 4, type: 'tool_call', tool: 'add_edge', args: { source: 'start', target: 'processA', label: '' }, result: 'Added edge start → processA.', durationMs: 2, timestamp: now },
+      { seq: 5, type: 'tool_call', tool: 'add_edge', args: { source: 'start', target: 'processB', label: '' }, result: 'Added edge start → processB.', durationMs: 2, timestamp: now },
+    ]
     return {
       suggestionId,
       markdown: PARALLEL_FLOW,
       summary: '並行処理フローに変更しました。2つの処理を同時に実行する構成です。',
       impacts: { nodesDelta: 2, edgesDelta: 3, changedNodeIds: ['processA', 'processB'], changedEdgeIds: [] },
+      agentTrace: trace,
+      executionMs: 1567,
     }
   }
 
@@ -202,6 +224,8 @@ function mockAgentResponse(message: string, currentMarkdown: string): Suggestion
     markdown: currentMarkdown,
     summary: `「${message}」について: 現在のフローが最適な構成です。変更は不要です。`,
     impacts: { nodesDelta: 0, edgesDelta: 0, changedNodeIds: [], changedEdgeIds: [] },
+    agentTrace: [],
+    executionMs: 800,
   }
 }
 

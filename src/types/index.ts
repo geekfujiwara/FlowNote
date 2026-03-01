@@ -44,11 +44,27 @@ export interface ParsedFlow {
 export type AgentStatus = 'idle' | 'thinking' | 'error'
 export type ChangeSource = 'user' | 'agent' | 'remote'
 
+// ─────────────────────────────────────────────
+// Agent trace types
+// ─────────────────────────────────────────────
+
+export interface AgentTraceEntry {
+  seq: number
+  type: 'tool_call'
+  tool: string
+  args: Record<string, unknown>
+  result: string
+  durationMs: number
+  timestamp: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'agent'
   content: string
   timestamp: string
+  agentTrace?: AgentTraceEntry[]
+  executionMs?: number
 }
 
 export interface SuggestionImpacts {
@@ -64,6 +80,8 @@ export interface Suggestion {
   markdown?: string
   summary: string
   impacts: SuggestionImpacts
+  agentTrace?: AgentTraceEntry[]
+  executionMs?: number
 }
 
 // ─────────────────────────────────────────────
