@@ -33,7 +33,7 @@ export const CustomNode = memo(function CustomNode({ data, selected }: NodeProps
   if (nodeType === 'input') {
     return (
       <div
-        className={`relative min-w-40 bg-indigo-700 text-white rounded-full border-2 border-indigo-400
+        className={`node-enter relative min-w-40 bg-indigo-700 text-white rounded-full border-2 border-indigo-400
           px-4 py-2 flex items-center justify-center text-sm font-medium shadow-md
           transition-all duration-300 ${ringClass}`}
       >
@@ -51,7 +51,7 @@ export const CustomNode = memo(function CustomNode({ data, selected }: NodeProps
   if (nodeType === 'output') {
     return (
       <div
-        className={`relative min-w-40 bg-emerald-700 text-white rounded-full border-2 border-emerald-400
+        className={`node-enter relative min-w-40 bg-emerald-700 text-white rounded-full border-2 border-emerald-400
           px-4 py-2 flex items-center justify-center text-sm font-medium shadow-md
           transition-all duration-300 ${ringClass}`}
       >
@@ -68,7 +68,7 @@ export const CustomNode = memo(function CustomNode({ data, selected }: NodeProps
   // ── Selector node (rotated diamond) ─────────────────────
   if (nodeType === 'selector') {
     return (
-      <div className="relative" style={{ width: 80, height: 80 }}>
+      <div className="node-enter relative" style={{ width: 80, height: 80 }}>
         {/* Rotated square gives diamond shape */}
         <div
           className={`absolute inset-0 bg-amber-700 border-2 border-amber-400 rotate-45
@@ -103,7 +103,7 @@ export const CustomNode = memo(function CustomNode({ data, selected }: NodeProps
   // ── Default node (rectangle, target + source) ────────────
   return (
     <div
-      className={`relative min-w-40 bg-zinc-800 text-zinc-100 rounded-xl border border-zinc-600
+      className={`node-enter relative min-w-40 bg-zinc-800 text-zinc-100 rounded-xl border border-zinc-600
         px-4 py-2 flex items-center justify-center text-sm font-medium shadow-md
         transition-all duration-300 ${ringClass}`}
     >

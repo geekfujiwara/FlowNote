@@ -85,11 +85,17 @@ body,
    Node animations
 ───────────────────────────────────────────── */
 
-/* Fade + scale in (new node) */
+/* Fade + scale in (new node)
+ * IMPORTANT: do NOT apply transform: scale() to .react-flow__node itself.
+ * React Flow calculates handle positions from the .react-flow__node bounding
+ * rect. A CSS transform on that wrapper shifts the measured rect, causing
+ * handles to be misaligned with the actual click/connection target.
+ * The scale animation is applied to the inner .node-enter wrapper instead (see CustomNode.tsx).
+ */
 @keyframes nodeEnter {
   from {
     opacity: 0;
-    transform: scale(0.7);
+    transform: scale(0.82);
   }
   to {
     opacity: 1;
@@ -97,7 +103,18 @@ body,
   }
 }
 
+/* Only animate opacity on the RF wrapper – keeps bounding rect stable */
 .react-flow__node {
+  animation: nodeEnterOpacity 0.2s ease-out;
+}
+
+@keyframes nodeEnterOpacity {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Inner content animation (scale bounce) – does NOT affect RF hit-test rects */
+.node-enter {
   animation: nodeEnter 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
