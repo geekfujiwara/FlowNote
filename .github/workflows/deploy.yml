@@ -7,7 +7,8 @@
 #   AZURE_STATIC_WEB_APPS_API_TOKEN   – Optional when AZURE_CREDENTIALS is set; token is then
 #                                       fetched fresh from Azure on each deploy run.
 #   VITE_API_BASE_URL                 – Functions URL
-#   VITE_PASSWORD_HASH                – SHA-256 hash of the demo login password
+#   LOGIN_PASSWORD                    – Plain-text login password (hashed to SHA-256 at build time)
+#                                       Alternatively set VITE_PASSWORD_HASH to a pre-computed SHA-256 hash.
 #
 # If secrets are not yet configured (infra not provisioned), the deploy
 # steps are skipped gracefully – the build step always runs as a CI check.
@@ -80,6 +81,22 @@ jobs:
       - name: Run tests
         run: npm test -- --run
 
+      # Compute VITE_PASSWORD_HASH from LOGIN_PASSWORD (plain-text secret) or fall back to
+      # a pre-computed VITE_PASSWORD_HASH secret for backward compatibility.
+      - name: Compute VITE_PASSWORD_HASH
+        if: ${{ needs.check-secrets.outputs.has_swa_token == 'true' || needs.check-secrets.outputs.has_azure_creds == 'true' }}
+        env:
+          LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD }}
+          FALLBACK_HASH:  ${{ secrets.VITE_PASSWORD_HASH }}
+        run: |
+          if [ -n "$LOGIN_PASSWORD" ]; then
+            echo "::add-mask::$LOGIN_PASSWORD"
+            HASH=$(printf '%s' "$LOGIN_PASSWORD" | sha256sum | cut -d' ' -f1)
+            echo "VITE_PASSWORD_HASH=$HASH" >> "$GITHUB_ENV"
+          elif [ -n "$FALLBACK_HASH" ]; then
+            echo "VITE_PASSWORD_HASH=$FALLBACK_HASH" >> "$GITHUB_ENV"
+          fi
+
       - name: Build (production)
         if: ${{ needs.check-secrets.outputs.has_swa_token == 'true' || needs.check-secrets.outputs.has_azure_creds == 'true' }}
         env:
@@ -87,7 +104,7 @@ jobs:
           VITE_USE_MOCK_AGENT: 'false'
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_AGENT_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
-          VITE_PASSWORD_HASH: ${{ secrets.VITE_PASSWORD_HASH }}
+          VITE_PASSWORD_HASH: ${{ env.VITE_PASSWORD_HASH }}
           VITE_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.VITE_APPINSIGHTS_CONNECTION_STRING }}
           # Optional: set these secrets to enable Microsoft Entra ID authentication.
           # When omitted, the app uses password-based access control (single shared
