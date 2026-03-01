@@ -7,6 +7,8 @@
 #   AZURE_SUBSCRIPTION_ID              Azure subscription ID
 #   AZURE_RESOURCE_GROUP               Resource group name (e.g. rg-flownote)
 #   AZURE_FUNCTIONAPP_NAME             Function App name (e.g. flownote-prod-func)
+#   AZURE_FUNCTIONAPP_PUBLISH_PROFILE  Function App SCM publish profile XML
+#                                      (az functionapp deployment list-publishing-profiles --xml)
 #   AZURE_STATIC_WEB_APPS_API_TOKEN    SWA deploy token (fetched from Azure if AZURE_CREDENTIALS is set)
 #   VITE_API_BASE_URL                  Azure Functions URL
 #   LOGIN_PASSWORD                     Plain-text login password (hashed to SHA-256 at build time)
@@ -384,15 +386,15 @@ jobs:
 
       - name: Deploy to Azure Functions
         # Azure/functions-action@v1 uses Kudu /api/publish (OneDeploy) which is the correct
-        # deployment path for Flex Consumption (FC1). It requires:
-        #   1. publicNetworkAccess=Enabled on the storage, AND
-        #   2. Function App managed identity has Storage Blob Data Owner on the storage.
-        # Both are ensured by the preceding steps.
+        # deployment path for Flex Consumption (FC1). Using publish-profile SCM credentials
+        # bypasses the RBAC resource-validation step that fails when the SP lacks
+        # Microsoft.Web/sites/read. AZURE_FUNCTIONAPP_PUBLISH_PROFILE is fetched via:
+        #   az functionapp deployment list-publishing-profiles --xml ...
         uses: Azure/functions-action@v1
         with:
           app-name: ${{ env.FUNCTION_APP_NAME }}
           package: func-package.zip
-          # No publish-profile needed – Azure Login (above) provides RBAC credentials.
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
 
       - name: Configure Function App CORS
         # Ensure CORS wildcard is set on the deployed Function App on every release.
