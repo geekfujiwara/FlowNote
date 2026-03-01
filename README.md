@@ -574,6 +574,17 @@ Actions タブ → **Deploy Infrastructure** → **Run workflow** を実行し�
 | `VITE_PASSWORD_HASH` | デモログインパスワードの SHA-256 ハッシュ値 |
 | `VITE_APPINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列 |
 
+**オプション（自前の Azure OpenAI リソースを使う場合）**
+
+`infra-deploy.yml` でインフラをプロビジョニングした場合、以下の値は Bicep が Function App に自動設定します。  
+既存リソースへの差し替えや、Bicep デプロイ後に手動で上書きしたい場合のみ登録してください。
+
+| Secret 名 | 説明 |
+|---|---|
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI エンドポイント URL（例: `https://YOUR-RESOURCE.openai.azure.com/`）|
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | モデルデプロイ名（例: `gpt-4o-mini`） |
+| `AZURE_OPENAI_API_VERSION` | API バージョン（例: `2025-04-01-preview`） |
+
 #### Step 4: アプリをデプロイ
 
 ```bash
@@ -647,6 +658,17 @@ OPENAI_MODEL=gpt-4o-mini
 - `debug/otel` エンドポイントで OTEL shim の動作を確認
 - `AZURE_OPENAI_ENDPOINT` が Function App のアプリ設定に正しく設定されているか確認
 - Azure Portal で `Cognitive Services OpenAI User` ロール割り当てを確認
+
+### AI エージェントが 404 エラー（Resource not found）を返す
+
+Azure OpenAI の設定値が正しくない場合に発生します。
+
+1. Azure Portal → Function App → **環境変数** で以下の値を確認してください
+   - `AZURE_OPENAI_ENDPOINT`: `https://<リソース名>.openai.azure.com/` 形式
+   - `AZURE_OPENAI_DEPLOYMENT_NAME`: 実際にデプロイされているモデル名（例: `gpt-4o-mini`）
+   - `AZURE_OPENAI_API_VERSION`: `2025-04-01-preview`
+2. 値が未設定の場合は、`infra-deploy.yml` を再実行してインフラを再プロビジョニングするか、GitHub Secrets に `AZURE_OPENAI_ENDPOINT` / `AZURE_OPENAI_DEPLOYMENT_NAME` / `AZURE_OPENAI_API_VERSION` を登録して `release.yml` を再実行してください
+3. Azure Portal → Azure OpenAI → **モデルデプロイ** で指定したデプロイ名が存在するか確認してください
 
 ---
 

@@ -26,6 +26,15 @@ param azureOpenAiApiVersion string = '2025-04-01-preview'
 @description('Azure OpenAI GlobalStandard capacity (TPM units)')
 param azureOpenAiCapacity int = 10
 
+@description('Azure OpenAI model deployment name')
+param azureOpenAiDeploymentName string = 'gpt-4o-mini'
+
+@description('Azure OpenAI model name')
+param azureOpenAiModelName string = 'gpt-4o-mini'
+
+@description('Azure OpenAI model version')
+param azureOpenAiModelVersion string = '2024-07-18'
+
 // ── Name variables ───────────────────────────────────────────
 var suffix             = '${prefix}-${environment}'
 var storageAccountName = take(replace('${prefix}${environment}st', '-', ''), 24)
