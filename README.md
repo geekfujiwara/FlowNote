@@ -569,10 +569,15 @@ Actions タブ → **Deploy Infrastructure** → **Run workflow** を実行し�
 | Secret 名 | 説明 |
 |---|---|
 | `AZURE_CREDENTIALS` | サービスプリンシパル JSON |
+| `AZURE_SUBSCRIPTION_ID` | Azure サブスクリプション ID |
+| `AZURE_RESOURCE_GROUP` | リソースグループ名（例: `rg-flownote`） |
+| `AZURE_FUNCTIONAPP_NAME` | Function App 名（例: `flownote-prod-func`） |
 | `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA デプロイトークン |
 | `VITE_API_BASE_URL` | Functions URL |
-| `VITE_PASSWORD_HASH` | デモログインパスワードの SHA-256 ハッシュ値 |
+| `LOGIN_PASSWORD` | デモログインパスワード（平文）— ビルド時に SHA-256 ハッシュへ自動変換 |
 | `VITE_APPINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列 |
+
+> **Note:** `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` は OIDC 連携認証に移行する場合に使用します。`AZURE_CREDENTIALS`（サービスプリンシパル JSON）を使う現在の構成では参照されません。
 
 **オプション（自前の Azure OpenAI リソースを使う場合）**
 
@@ -652,6 +657,78 @@ OPENAI_MODEL=gpt-4o-mini
 1. GitHub Secrets にすべての必要な値が登録されているか確認
 2. `infra-deploy.yml` が先に実行されているか確認（インフラが存在しないと SWA へのデプロイは失敗します）
 3. Azure サービスプリンシパルの有効期限・権限を確認
+4. バックエンドデプロイが失敗する場合は下記「**Flex Consumption プランへのデプロイが失敗する**」を参照
+
+### Flex Consumption プランへのデプロイが失敗する
+
+Flex Consumption (FC1) は通常の Consumption / Premium プランと異なるデプロイ経路を使うため、いくつかの落とし穴があります。本リポジトリで実際に発生したエラーと対処を記録します。
+
+#### ❌ 試みたが失敗したアプローチ
+
+| アプローチ | エラー | 原因 |
+|---|---|---|
+| `az functionapp deployment source config-zip` | HTTP 415 | FC1 は Kudu の `/api/deployments/latest` エンドポイントに未対応 |
+| `az functionapp deploy --type zip` | HTTP 415 | 古い Azure CLI (2.60 以前) は FC1 で同エンドポイントを使用。`az upgrade` 後も GitHub Actions ランナーの CLI が旧版のため解消せず |
+| `az storage blob upload --auth-mode login` | HTTP 403 (AuthorizationPermissionMismatch) | サービスプリンシパルはマネジメントプレーン（Contributor）のみ。データプレーン（Storage Blob Data Contributor）RBAC が未付与のためブロック |
+| `az storage blob upload --account-key` | `KeyBasedAuthenticationNotPermitted` | Azure Policy によりストレージのキー認証が無効化されていた |
+| `Azure/functions-action@v1`（RBAC 確認なし） | HTTP 403 `BlobUploadFailedException` | Kudu が Function App のマネージドID でデプロイ用コンテナにアップロードするが、`Storage Blob Data Owner` ロールが未割り当て or RBAC 伝播前 |
+
+#### ✅ 解決したアプローチ
+
+**`release.yml` に以下の2ステップを追加し、その後 `Azure/functions-action@v1` でデプロイ**
+
+```yaml
+# ① ストレージの Public Network Access を有効化
+- name: Ensure storage public network access is Enabled for deployment
+  run: |
+    az storage account update \
+      --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
+      --resource-group "${{ env.RESOURCE_GROUP }}" \
+      --public-network-access Enabled \
+      --bypass AzureServices Logging Metrics \
+      --output none
+
+# ② Function App マネージドID に Storage Blob Data Owner ロールを保証
+- name: Ensure Function App managed identity has Storage Blob Data Owner
+  run: |
+    PRINCIPAL_ID=$(az functionapp identity show \
+      --name "${{ env.FUNCTION_APP_NAME }}" \
+      --resource-group "${{ env.RESOURCE_GROUP }}" \
+      --query principalId --output tsv)
+    STORAGE_ID=$(az storage account show \
+      --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
+      --resource-group "${{ env.RESOURCE_GROUP }}" \
+      --query id --output tsv)
+    EXISTING=$(az role assignment list \
+      --scope "$STORAGE_ID" --assignee "$PRINCIPAL_ID" \
+      --role "Storage Blob Data Owner" \
+      --query "[0].id" --output tsv 2>/dev/null || echo "")
+    if [ -z "$EXISTING" ]; then
+      az role assignment create \
+        --scope "$STORAGE_ID" --assignee "$PRINCIPAL_ID" \
+        --role "Storage Blob Data Owner"
+      sleep 90  # RBAC 伝播待ち
+    fi
+
+# ③ 実際のデプロイ（FC1 は Kudu /api/publish = OneDeploy を使用）
+- name: Deploy to Azure Functions
+  uses: Azure/functions-action@v1
+  with:
+    app-name: ${{ env.FUNCTION_APP_NAME }}
+    package: func-package.zip
+```
+
+**なぜこれが機能するか：**
+
+FC1 (Flex Consumption) のデプロイは `Azure/functions-action@v1` が Kudu の `/api/publish`（OneDeploy）エンドポイントを呼び出し、Kudu が **Function App のシステム割り当てマネージドID** でストレージの `deployments` コンテナに ZIP をアップロードします。このため：
+
+1. ストレージの `publicNetworkAccess=Enabled`（または VNet サービスエンドポイント）が必要
+2. Function App のマネージドID に `Storage Blob Data Owner` ロールが必要
+3. デプロイアクション自体は `Azure/functions-action@v1` を使う（`az functionapp deploy` は FC1 で 415 を返す）
+
+**Bicep で事前に設定する場合：**
+
+`infra/main.bicep` のストレージ定義に `bypass` と RBAC ロール割り当てが含まれていれば、インフラプロビジョニング直後のデプロイも成功します（RBAC の伝播に最大数分かかる点に注意）。
 
 ### AI エージェントが 500 エラーを返す
 
