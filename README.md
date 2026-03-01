@@ -605,7 +605,7 @@ git push origin main
 ```
 AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.openai.azure.com/
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-5-1-codex-mini
-AZURE_OPENAI_API_VERSION=2025-01-01-preview
+AZURE_OPENAI_API_VERSION=preview
 # AZURE_OPENAI_API_KEY は不要（Managed Identity 認証）
 ```
 
