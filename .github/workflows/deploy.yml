@@ -4,6 +4,9 @@
 #
 # Required GitHub Secrets:
 #   AZURE_CREDENTIALS                 – Service principal JSON (enables SWA + Functions deploy)
+#   AZURE_SUBSCRIPTION_ID             – Azure subscription ID
+#   AZURE_RESOURCE_GROUP              – Resource group name (e.g. rg-flownote)
+#   AZURE_FUNCTIONAPP_NAME            – Function App name (e.g. flownote-prod-func)
 #   AZURE_STATIC_WEB_APPS_API_TOKEN   – Optional when AZURE_CREDENTIALS is set; token is then
 #                                       fetched fresh from Azure on each deploy run.
 #   VITE_API_BASE_URL                 – Functions URL
@@ -26,9 +29,9 @@ on:
   workflow_dispatch:
 
 env:
-  RESOURCE_GROUP: rg-flownote
+  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  FUNCTION_APP_NAME: flownote-prod-func
+  FUNCTION_APP_NAME: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
   SWA_NAME: flownote-prod-swa
   # Storage account name mirrors Bicep: take(replace('${prefix}${environment}st','-',''),24)
   # prefix=flownote, environment=prod → flownoteprodst

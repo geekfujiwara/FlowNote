@@ -22,6 +22,7 @@ import { useStore } from '@/store/useStore'
 import { CustomNode } from './CustomNode'
 import { CanvasEditToolbar } from './CanvasEditToolbar'
 import { NodeEdgeInspector } from './NodeEdgeInspector'
+import { PixelLoadingOverlay } from './PixelLoadingOverlay'
 import type { FlowNodeData, FlowNodeType } from '@/types'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -98,6 +99,7 @@ function FlowCanvasInner() {
   const setSelection = useStore((s) => s.setSelection)
   const canvasMode = useStore((s) => s.canvasMode)
   const currentNote = useStore((s) => s.currentNote)
+  const agentStatus = useStore((s) => s.agentStatus)
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>(storeNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(storeEdges)
@@ -299,6 +301,9 @@ function FlowCanvasInner() {
         onUpdateEdge={handleUpdateEdge}
         onDeleteEdge={handleDeleteEdge}
       />
+
+      {/* 16-bit pixel loading overlay — shown while AI is designing the flow */}
+      {agentStatus === 'thinking' && <PixelLoadingOverlay />}
     </div>
   )
 }

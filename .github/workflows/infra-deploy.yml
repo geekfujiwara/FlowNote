@@ -2,6 +2,11 @@
 # FlowNote – Infrastructure Deployment
 # Run manually from GitHub Actions tab to provision Azure resources.
 # After first run, copy the outputs into GitHub Secrets.
+#
+# Required GitHub Secrets:
+#   AZURE_CREDENTIALS       – Service principal JSON
+#   AZURE_SUBSCRIPTION_ID   – (Optional) Target subscription
+#   AZURE_RESOURCE_GROUP    – Resource group name (e.g. rg-flownote)
 # ============================================================
 name: Deploy Infrastructure
 
@@ -22,7 +27,7 @@ on:
         default: 'japaneast'
 
 env:
-  RESOURCE_GROUP: rg-flownote
+  RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
 jobs:
@@ -108,8 +113,8 @@ jobs:
           echo ""
           echo "  AZURE_STATIC_WEB_APPS_API_TOKEN = (shown once below – store safely)"
           echo "  VITE_API_BASE_URL = ${{ steps.bicep.outputs.func_url }}"
-          echo "  VITE_PASSWORD_HASH = <SHA-256 hash of your demo login password>"
-          echo "    Generate: echo -n 'YOUR_PASSWORD' | sha256sum"
+          echo "  LOGIN_PASSWORD = <your plain-text login password>"
+          echo "    The SHA-256 hash is computed automatically at build time by the release workflow."
           echo ""
           echo "  Azure OpenAI settings are configured automatically by Bicep."
           echo "  Endpoint : ${{ steps.bicep.outputs.oai_endpoint }}"

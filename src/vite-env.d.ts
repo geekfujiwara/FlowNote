@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_USE_MOCK_AGENT: string
   readonly VITE_AGENT_API_BASE_URL: string
   readonly VITE_PASSWORD_HASH: string
+  readonly VITE_APPINSIGHTS_CONNECTION_STRING: string
+  readonly VITE_SIGNALR_ENABLED: string
 }
 
 interface ImportMeta {

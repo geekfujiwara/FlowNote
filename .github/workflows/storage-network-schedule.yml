@@ -18,6 +18,7 @@
 # Required Secrets:
 #   AZURE_CREDENTIALS        – Service principal JSON
 #   AZURE_SUBSCRIPTION_ID    – (Optional) Target subscription
+#   AZURE_RESOURCE_GROUP     – Resource group name (e.g. rg-flownote)
 # ============================================================
 name: Storage Network Access Schedule
 
@@ -38,7 +39,7 @@ on:
           - disable
 
 env:
-  RESOURCE_GROUP:       rg-flownote
+  RESOURCE_GROUP:       ${{ secrets.AZURE_RESOURCE_GROUP }}
   SUBSCRIPTION_ID:      ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   STORAGE_ACCOUNT_NAME: flownoteprodst   # Bicep: take(replace('flownoteprodst','-',''),24)
 

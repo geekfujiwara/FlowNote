@@ -74,6 +74,7 @@ export interface FlowNoteState {
 
   // Async flags
   isSaving: boolean
+  notesLoading: boolean
   isConnected: boolean
   sidebarOpen: boolean
 
@@ -143,6 +144,7 @@ export const useStore = create<FlowNoteState>()(
     animateOnUpdate: true,
     lastAppliedChange: null,
     isSaving: false,
+    notesLoading: true,
     isConnected: false,
     sidebarOpen: true,
     activeTemplateId: null,
@@ -206,8 +208,13 @@ export const useStore = create<FlowNoteState>()(
 
     // ─── listNotes ──────────────────────────
     listNotes: async () => {
-      const notes = await mockApi.listNotes()
-      set({ notes })
+      set({ notesLoading: true })
+      try {
+        const notes = await mockApi.listNotes()
+        set({ notes })
+      } finally {
+        set({ notesLoading: false })
+      }
     },
 
     // ─── loadNote ───────────────────────────

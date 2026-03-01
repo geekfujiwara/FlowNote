@@ -66,7 +66,7 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
   }
 
   return (
-    <div className="h-full flex flex-col bg-zinc-900 w-80">
+    <div className="h-full flex flex-col bg-zinc-900 w-full">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800 shrink-0">
         <Sparkles className="w-4 h-4 text-purple-400" />

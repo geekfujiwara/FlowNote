@@ -21,19 +21,22 @@ param pythonVersion string = '3.11'
 param repositoryUrl string = 'https://github.com/geekfujiwara/FlowNote'
 
 @description('Azure OpenAI API version')
-param azureOpenAiApiVersion string = '2025-10-03-preview'
+param azureOpenAiApiVersion string = '2024-05-01-preview'
 
 @description('Azure OpenAI GlobalStandard capacity (TPM units)')
 param azureOpenAiCapacity int = 10
 
 @description('Azure OpenAI model deployment name')
-param azureOpenAiDeploymentName string = 'gpt-5-1-codex-mini'
+param azureOpenAiDeploymentName string = 'gpt-5.2-chat'
 
 @description('Azure OpenAI model name')
 param azureOpenAiModelName string = 'gpt-5.1-codex-mini'
 
 @description('Azure OpenAI model version')
 param azureOpenAiModelVersion string = '2025-11-13'
+
+@description('Azure OpenAI endpoint (overrides discovered endpoint; use APIM gateway URL if applicable)')
+param azureOpenAiEndpointOverride string = 'https://aig01.azure-api.net/geekfndrypj-resource'
 
 // ── Name variables ───────────────────────────────────────────
 var suffix             = '${prefix}-${environment}'
@@ -203,9 +206,11 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           value: 'notes'
         }
         {
-          // Azure OpenAI endpoint – managed identity auth (no key)
+          // Azure OpenAI endpoint – APIM gateway (managed identity auth, no key)
+          // If azureOpenAiEndpointOverride is set, use it; otherwise fall back to the
+          // directly-provisioned Azure OpenAI resource endpoint.
           name: 'AZURE_OPENAI_ENDPOINT'
-          value: openAi.properties.endpoint
+          value: empty(azureOpenAiEndpointOverride) ? openAi.properties.endpoint : azureOpenAiEndpointOverride
         }
         {
           name: 'AZURE_OPENAI_DEPLOYMENT_NAME'

@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useStore } from '@/store/useStore'
 import { NoteListItem } from './NoteListItem'
+import { PixelSpriteLoader } from '@/components/shared/PixelSpriteLoader'
 import {
   FilePlus2,
   Search,
@@ -15,6 +16,7 @@ export function Sidebar() {
   const newNote = useStore((s) => s.newNote)
   const loadNote = useStore((s) => s.loadNote)
   const deleteNote = useStore((s) => s.deleteNote)
+  const notesLoading = useStore((s) => s.notesLoading)
 
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
@@ -82,13 +84,17 @@ export function Sidebar() {
 
       {/* Note list */}
       <div className="flex-1 overflow-y-auto py-1 space-y-0.5 px-1">
-        {loading && (
+        {/* ノート一覧の初回読込中：16bitアニメーション */}
+        {notesLoading && <PixelSpriteLoader />}
+
+        {/* 個別ノート選択時のローディング */}
+        {!notesLoading && loading && (
           <div className="flex justify-center py-4">
             <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
           </div>
         )}
 
-        {!loading && filtered.length === 0 && (
+        {!notesLoading && !loading && filtered.length === 0 && (
           <div className="flex flex-col items-center py-8 gap-3 text-zinc-600">
             <FileText className="w-8 h-8" />
             <div className="text-center text-xs px-4">
@@ -106,7 +112,7 @@ export function Sidebar() {
           </div>
         )}
 
-        {filtered.map((note) => (
+        {!notesLoading && filtered.map((note) => (
           <NoteListItem
             key={note.id}
             note={note}
