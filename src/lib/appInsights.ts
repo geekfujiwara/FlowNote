@@ -23,6 +23,10 @@ if (connStr) {
       enableCorsCorrelation: true,
       enableRequestHeaderTracking: true,
       enableResponseHeaderTracking: true,
+      // Prevent Permissions Policy violation: 'unload is not allowed'
+      // Modern browsers (and Azure SWA) block the unload event via Permissions-Policy.
+      // Use 'visibilitychange' (pagehide alternative) for flush instead.
+      disablePageUnloadEvents: ['unload'],
     },
   })
   _ai.loadAppInsights()

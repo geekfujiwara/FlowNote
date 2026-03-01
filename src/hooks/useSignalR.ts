@@ -4,6 +4,9 @@ import { useStore } from '@/store/useStore'
 import { negotiate } from '@/lib/mockApi'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
+// SignalR requires Azure SignalR Service to be provisioned.
+// Set VITE_SIGNALR_ENABLED=true only when the service is deployed.
+const SIGNALR_ENABLED = import.meta.env.VITE_SIGNALR_ENABLED === 'true'
 
 export function useSignalR() {
   const connectionRef = useRef<signalR.HubConnection | null>(null)
@@ -11,8 +14,8 @@ export function useSignalR() {
   const setIsConnected = useStore((s) => s.setIsConnected)
 
   useEffect(() => {
-    if (USE_MOCK) {
-      // In mock mode, simulate occasional remote updates (disabled by default)
+    if (USE_MOCK || !SIGNALR_ENABLED) {
+      // SignalR disabled: either mock mode or Azure SignalR Service not provisioned.
       setIsConnected(true)
       return () => {}
     }
