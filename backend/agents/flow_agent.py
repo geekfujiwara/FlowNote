@@ -287,7 +287,10 @@ def _create_agent(tools: list | None = None, instructions: str | None = None) ->
             "or OPENAI_API_KEY in local.settings.json."
         )
 
-    return client.as_agent(
+    from agent_framework import ChatAgent  # type: ignore
+
+    return ChatAgent(
+        chat_client=client,
         name="FlowNoteAgent",
         instructions=instructions or BASE_SYSTEM_PROMPT,
         tools=tools or [],
