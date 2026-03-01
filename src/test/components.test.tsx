@@ -24,6 +24,7 @@ function resetStore() {
     selectedEdgeIds: [],
     isSaving: false,
     isConnected: false,
+    notesLoading: false,
     sidebarOpen: true,
     lastAppliedChange: null,
     animateOnUpdate: true,
