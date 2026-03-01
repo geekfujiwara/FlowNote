@@ -571,6 +571,7 @@ Actions タブ → **Deploy Infrastructure** → **Run workflow** を実行し�
 | `AZURE_CREDENTIALS` | サービスプリンシパル JSON |
 | `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA デプロイトークン |
 | `VITE_API_BASE_URL` | Functions URL |
+| `VITE_PASSWORD_HASH` | デモログインパスワードの SHA-256 ハッシュ値 |
 | `VITE_APPINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列 |
 
 #### Step 4: アプリをデプロイ

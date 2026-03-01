@@ -68,11 +68,15 @@ jobs:
           FUNC_NAME=$(echo $OUTPUT | jq -r '.functionAppName.value')
           SWA_NAME=$(echo $OUTPUT | jq -r '.staticWebAppName.value')
           SWA_HOST=$(echo $OUTPUT | jq -r '.staticWebAppHostname.value')
+          OAI_ENDPOINT=$(echo $OUTPUT | jq -r '.openAiEndpoint.value')
+          OAI_DEPLOYMENT=$(echo $OUTPUT | jq -r '.openAiDeploymentName.value')
 
           echo "func_url=$FUNC_URL" >> $GITHUB_OUTPUT
           echo "func_name=$FUNC_NAME" >> $GITHUB_OUTPUT
           echo "swa_name=$SWA_NAME" >> $GITHUB_OUTPUT
           echo "swa_host=$SWA_HOST" >> $GITHUB_OUTPUT
+          echo "oai_endpoint=$OAI_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "oai_deployment=$OAI_DEPLOYMENT" >> $GITHUB_OUTPUT
 
       - name: Get Static Web App Deployment Token
         id: swa_token
@@ -96,13 +100,16 @@ jobs:
           echo ""
           echo "  AZURE_STATIC_WEB_APPS_API_TOKEN = (shown once below – store safely)"
           echo "  VITE_API_BASE_URL = ${{ steps.bicep.outputs.func_url }}"
+          echo "  VITE_PASSWORD_HASH = <SHA-256 hash of your demo login password>"
+          echo "    Generate: echo -n 'YOUR_PASSWORD' | sha256sum"
+          echo ""
+          echo "  Azure OpenAI settings are configured automatically by Bicep."
+          echo "  Endpoint : ${{ steps.bicep.outputs.oai_endpoint }}"
+          echo "  Deployment: ${{ steps.bicep.outputs.oai_deployment }}"
           echo ""
           echo "🔑 SWA Deployment Token:"
           echo "${{ steps.swa_token.outputs.token }}"
           echo ""
           echo "🌐 Frontend URL: https://${{ steps.bicep.outputs.swa_host }}"
           echo "⚡ Functions URL: ${{ steps.bicep.outputs.func_url }}"
-          echo ""
-          echo "⚠️  Also set OPENAI_API_KEY in Azure Portal:"
-          echo "  Function App > Configuration > Application settings"
           echo "=============================================="
