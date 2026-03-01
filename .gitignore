@@ -34,7 +34,7 @@ e2e-results/
 playwright-report/
 
 # Editor
-.vscode/
+
 *.suo
 *.njsproj
 *.sln
