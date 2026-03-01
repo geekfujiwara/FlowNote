@@ -21,16 +21,16 @@ param pythonVersion string = '3.11'
 param repositoryUrl string = 'https://github.com/geekfujiwara/FlowNote'
 
 @description('Azure OpenAI deployment name')
-param azureOpenAiDeploymentName string = 'gpt-5.2-chat'
+param azureOpenAiDeploymentName string = 'gpt-4o-mini'
 
 @description('Azure OpenAI API version')
-param azureOpenAiApiVersion string = '2025-01-01-preview'
+param azureOpenAiApiVersion string = '2024-12-01-preview'
 
 @description('Azure OpenAI model name')
-param azureOpenAiModelName string = 'gpt-5.2-chat'
+param azureOpenAiModelName string = 'gpt-4o-mini'
 
 @description('Azure OpenAI model version')
-param azureOpenAiModelVersion string = '2025-11-13'
+param azureOpenAiModelVersion string = '2024-07-18'
 
 @description('Azure OpenAI GlobalStandard capacity (TPM units)')
 param azureOpenAiCapacity int = 10
