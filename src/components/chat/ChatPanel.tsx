@@ -21,7 +21,11 @@ import { getTemplateById } from '@/lib/templates'
 
 type PanelTab = 'chat' | 'log'
 
-export function ChatPanel() {
+interface ChatPanelProps {
+  onOpenTemplates?: () => void
+}
+
+export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
   const chatMessages = useStore((s) => s.chatMessages)
   const agentStatus = useStore((s) => s.agentStatus)
   const pendingSuggestion = useStore((s) => s.pendingSuggestion)
@@ -184,6 +188,19 @@ export function ChatPanel() {
                     {s}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {onOpenTemplates && (
+              <div className="flex items-center mb-2">
+                <button
+                  onClick={onOpenTemplates}
+                  className="flex items-center gap-1.5 text-xs px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-indigo-300 hover:text-indigo-200 rounded-md border border-zinc-700 transition-colors"
+                  title="テンプレートから開始"
+                >
+                  <LayoutTemplate className="w-4 h-4" />
+                  <span>テンプレート</span>
+                </button>
               </div>
             )}
 

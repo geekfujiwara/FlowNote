@@ -386,6 +386,9 @@ export const useStore = create<FlowNoteState>()(
       }
       set((s) => ({ versionHistory: [entry, ...s.versionHistory].slice(0, 50) }))
       trackEvent('suggestion_applied', { summary })
+
+      // Auto-save so applied changes survive a page reload
+      get().saveNote()
     },
 
     // ─── saveVersion ───────────────────────
@@ -450,6 +453,8 @@ export const useStore = create<FlowNoteState>()(
       // Convert canvas → Markdown (canonical sync)
       const md = canvasToMarkdown(nodes, edges)
       set({ nodes, edges, markdown: md })
+      // Auto-save so canvas edits survive a page reload
+      get().saveNote()
     },
 
     // ─── setCanvasMode ──────────────────────
