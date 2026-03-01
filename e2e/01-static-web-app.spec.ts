@@ -1,11 +1,11 @@
 /**
  * FlowNote Azure E2E Tests – Static Web App
- * Target: https://red-bay-0ae91090f.2.azurestaticapps.net
+ * Target URL is configured via the E2E_BASE_URL environment variable.
  */
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = 'https://red-bay-0ae91090f.2.azurestaticapps.net';
-const API_BASE  = 'https://flownote-prod-func.azurewebsites.net';
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:5173';
+const API_BASE  = process.env.E2E_API_BASE_URL ?? 'http://localhost:7071';
 
 // ────────────────────────────────────────────────────────────
 // 1. SWA – ページ読み込みチェック

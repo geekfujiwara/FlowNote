@@ -7,8 +7,11 @@ const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
 // Use password auth in mock mode OR when MSAL credentials are not configured
 const USE_PASSWORD_AUTH = USE_MOCK || !hasMsalConfig
 
-// SHA-256 of "geekfujiwara@123"  (do not store the raw password)
-const CORRECT_HASH = '9d617413b02e06342e176091c9b0c0e2d20b8cdd974fbf3b17fcaa610c942e49'
+// Password hash is configured via VITE_PASSWORD_HASH environment variable (SHA-256)
+const CORRECT_HASH = import.meta.env.VITE_PASSWORD_HASH ?? ''
+if (USE_PASSWORD_AUTH && !CORRECT_HASH) {
+  console.warn('[AuthGuard] VITE_PASSWORD_HASH is not set. Password login will not work. Set it to the SHA-256 hash of your desired password in .env.local.')
+}
 
 async function sha256(text: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
