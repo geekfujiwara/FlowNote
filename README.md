@@ -33,7 +33,7 @@
 
 FlowNote は、**マークダウン記法でフローチャートを記述**し、リアルタイムでキャンバスに可視化できる Web アプリです。アイデアをテキストとして書き起こすだけで、美しいフロー図が自動的に生成されます。設計書の作成やプロセス整理に使えるフローチャートを、コードを書く感覚でサクサクと作れるのが FlowNote の最大の特徴です。
 
-さらに、Azure OpenAI (gpt-5.1-codex-mini) と Microsoft Agent Framework を組み合わせた AI エージェントをチャットパネルから利用できます。「承認ステップを追加して」「条件分岐を整理して」といった自然言語の指示を入力するだけで、AI がノードやエッジの変更案を差分プレビューとして提案します。内容を確認してから適用・破棄を選べるため、意図しない変更が加わる心配がありません。エージェントへのすべてのリクエスト・レスポンスは **ログビューア** でリアルタイムに確認でき、AI が何をどう判断したかを透明に把握できます。
+さらに、Azure OpenAI (gpt-5.2-chat) と Microsoft Agent Framework を組み合わせた AI エージェントをチャットパネルから利用できます。「承認ステップを追加して」「条件分岐を整理して」といった自然言語の指示を入力するだけで、AI がノードやエッジの変更案を差分プレビューとして提案します。内容を確認してから適用・破棄を選べるため、意図しない変更が加わる心配がありません。エージェントへのすべてのリクエスト・レスポンスは **ログビューア** でリアルタイムに確認でき、AI が何をどう判断したかを透明に把握できます。
 
 ````
 # サンプルフロー
@@ -70,7 +70,7 @@ graph TB
     subgraph Azure["Azure (japaneast / rg-flownote)"]
         SWA["🌐 Azure Static Web Apps\nflownote-prod-swa\nFree tier · CDN"]
         Func["⚡ Azure Functions\nflownote-prod-func\nFlexConsumption · Python 3.11"]
-        OAI["🤖 Azure OpenAI\nflownote-prod-oai\ngpt-5.1-codex-mini (S0)"]
+        OAI["🤖 Azure OpenAI\nflownote-prod-oai\ngpt-5.2-chat (S0)"]
         Blob["💾 Azure Blob Storage\nflownoteprodst\nManaged Identity"]
         APPI["📊 Application Insights"]
         LAW["📋 Log Analytics Workspace"]
@@ -211,7 +211,7 @@ graph TB
 
         subgraph AI["AI / 推論"]
             OAI["Azure OpenAI S0\nflownote-prod-oai"]
-            Model["gpt-5-1-codex-mini\nGlobalStandard 10TPM"]
+            Model["gpt-5.2-chat\nGlobalStandard 10TPM"]
             OAI --> Model
         end
 
@@ -352,7 +352,7 @@ FlowNote は、フローチャート作成に必要なすべての機能をひ�
 |---|---|---|
 | Azure Static Web Apps | Free | フロントエンドホスティング・CDN |
 | Azure Functions | FlexConsumption (Python 3.11) | バックエンド API |
-| Azure OpenAI | S0 (japaneast) | gpt-5.1-codex-mini 推論 |
+| Azure OpenAI | S0 (japaneast) | gpt-5.2-chat 推論 |
 | Azure Blob Storage | Standard LRS | ノートデータ永続化 |
 | Application Insights | — | テレメトリ・監視 |
 | Log Analytics Workspace | PerGB2018 | ログ集約（30日） |
@@ -539,7 +539,7 @@ FlowNote 独自の Markdown 拡張記法です。コードブロックの言語�
 |---|---|---|
 | Static Web Apps | Free | フロントエンドホスティング・CDN |
 | Azure Functions | FlexConsumption (Python 3.11) | バックエンド API |
-| Azure OpenAI | S0 | gpt-5.1-codex-mini 推論エンジン |
+| Azure OpenAI | S0 | gpt-5.2-chat 推論エンジン |
 | Storage Account | Standard LRS (Managed Identity) | ノートデータ永続化 |
 | Application Insights | — | テレメトリ・監視 |
 | Log Analytics Workspace | PerGB2018 (30日) | ログ集約 |
@@ -605,8 +605,8 @@ git push origin main
 
 ```
 AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-5-1-codex-mini
-AZURE_OPENAI_API_VERSION=preview
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-5.2-chat
+AZURE_OPENAI_API_VERSION=2025-01-01-preview
 # AZURE_OPENAI_API_KEY は不要（Managed Identity 認証）
 ```
 
