@@ -20,18 +20,20 @@ param pythonVersion string = '3.11'
 @description('GitHub repo URL (used for SWA metadata only)')
 param repositoryUrl string = 'https://github.com/geekfujiwara/FlowNote'
 
-@description('Azure OpenAI endpoint (leave empty to skip)')
-param azureOpenAiEndpoint string = ''
-
 @description('Azure OpenAI deployment name')
 param azureOpenAiDeploymentName string = 'gpt-5-1-codex-mini'
 
-@description('Azure OpenAI API key (leave empty to use managed identity)')
-@secure()
-param azureOpenAiApiKey string = ''
-
 @description('Azure OpenAI API version')
 param azureOpenAiApiVersion string = '2025-01-01-preview'
+
+@description('Azure OpenAI model name')
+param azureOpenAiModelName string = 'gpt-5.1-codex-mini'
+
+@description('Azure OpenAI model version')
+param azureOpenAiModelVersion string = '2025-11-13'
+
+@description('Azure OpenAI GlobalStandard capacity (TPM units)')
+param azureOpenAiCapacity int = 10
 
 // ── Name variables ───────────────────────────────────────────
 var suffix             = '${prefix}-${environment}'
@@ -41,6 +43,7 @@ var staticWebAppName   = '${suffix}-swa'
 var appInsightsName    = '${suffix}-appi'
 var logAnalyticsName   = '${suffix}-law'
 var appServicePlanName = '${suffix}-asp'
+var openAiAccountName  = '${suffix}-oai'
 
 // ── Log Analytics Workspace ──────────────────────────────────
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
@@ -115,8 +118,40 @@ resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
   }
 }
 
-// ── Storage Blob Data Owner role (managed identity) ────────────
+// ── Azure OpenAI ─────────────────────────────────────────────
+resource openAi 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
+  name: openAiAccountName
+  location: location
+  kind: 'OpenAI'
+  sku: { name: 'S0' }
+  properties: {
+    customSubDomainName: openAiAccountName
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+// ── Model Deployment ─────────────────────────────────────────
+resource modelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: openAi
+  name: azureOpenAiDeploymentName
+  sku: {
+    name: 'GlobalStandard'
+    capacity: azureOpenAiCapacity
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: azureOpenAiModelName
+      version: azureOpenAiModelVersion
+    }
+  }
+}
+
+// ── Role IDs ──────────────────────────────────────────────────
+// Storage Blob Data Owner
 var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+// Cognitive Services OpenAI User
+var cognitiveServicesOpenAiUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
 
 // ── Function App ─────────────────────────────────────────────
 resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
@@ -154,21 +189,13 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           value: 'notes'
         }
         {
-          // Set this in GitHub secrets / Azure portal after deployment
-          name: 'OPENAI_API_KEY'
-          value: ''
-        }
-        {
+          // Azure OpenAI endpoint – managed identity auth (no key)
           name: 'AZURE_OPENAI_ENDPOINT'
-          value: azureOpenAiEndpoint
+          value: openAi.properties.endpoint
         }
         {
           name: 'AZURE_OPENAI_DEPLOYMENT_NAME'
           value: azureOpenAiDeploymentName
-        }
-        {
-          name: 'AZURE_OPENAI_API_KEY'
-          value: azureOpenAiApiKey
         }
         {
           name: 'AZURE_OPENAI_API_VERSION'
@@ -214,6 +241,18 @@ resource funcStorageRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
   }
 }
 
+// ── Role Assignment: Function App → Cognitive Services OpenAI User ──
+resource funcOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(openAi.id, functionApp.id, cognitiveServicesOpenAiUserRoleId)
+  scope: openAi
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAiUserRoleId)
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+  dependsOn: [modelDeployment]
+}
+
 // ── Static Web App ───────────────────────────────────────────
 resource staticWebApp 'Microsoft.Web/staticSites@2023-01-01' = {
   name: staticWebAppName
@@ -236,3 +275,5 @@ output staticWebAppName string = staticWebApp.name
 output staticWebAppHostname string = staticWebApp.properties.defaultHostname
 output storageAccountName string = storage.name
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
+output openAiEndpoint string = openAi.properties.endpoint
+output openAiDeploymentName string = modelDeployment.name
