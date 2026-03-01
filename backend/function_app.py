@@ -19,6 +19,34 @@ from azure.storage.blob import BlobServiceClient, ContentSettings
 from azure.core.exceptions import ResourceNotFoundError
 from azure.identity import DefaultAzureCredential
 
+# ---------------------------------------------------------------
+# OpenTelemetry backward-compat shim
+# opentelemetry-semantic-conventions>=0.50b0 removed LLM_* attrs from
+# SpanAttributes. agent-framework (via opentelemetry-instrumentation-openai)
+# still references them at runtime. Add them back as a no-op shim so
+# no AttributeError is raised regardless of installed version.
+# ---------------------------------------------------------------
+try:
+    from opentelemetry.semconv.trace import SpanAttributes as _SA
+    _LLM_ATTRS = {
+        'LLM_REQUEST_MODEL':            'llm.request.model',
+        'LLM_RESPONSE_MODEL':           'llm.response.model',
+        'LLM_VENDOR':                   'llm.vendor',
+        'LLM_REQUEST_TYPE':             'llm.request.type',
+        'LLM_REQUEST_MAX_TOKENS':       'llm.request.max_tokens',
+        'LLM_TEMPERATURE':              'llm.temperature',
+        'LLM_TOP_P':                    'llm.top_p',
+        'LLM_USAGE_PROMPT_TOKENS':      'llm.usage.prompt_tokens',
+        'LLM_USAGE_COMPLETION_TOKENS':  'llm.usage.completion_tokens',
+        'LLM_USAGE_TOTAL_TOKENS':       'llm.usage.total_tokens',
+        'LLM_STREAM':                   'llm.is_streaming',
+    }
+    for _k, _v in _LLM_ATTRS.items():
+        if not hasattr(_SA, _k):
+            setattr(_SA, _k, _v)
+except Exception:
+    pass
+
 from agents.flow_agent import run_flow_agent
 
 logger = logging.getLogger(__name__)
