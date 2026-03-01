@@ -21,19 +21,19 @@ param pythonVersion string = '3.11'
 param repositoryUrl string = 'https://github.com/geekfujiwara/FlowNote'
 
 @description('Azure OpenAI API version')
-param azureOpenAiApiVersion string = '2025-04-01-preview'
+param azureOpenAiApiVersion string = '2025-10-03-preview'
 
 @description('Azure OpenAI GlobalStandard capacity (TPM units)')
 param azureOpenAiCapacity int = 10
 
 @description('Azure OpenAI model deployment name')
-param azureOpenAiDeploymentName string = 'gpt-4o-mini'
+param azureOpenAiDeploymentName string = 'gpt-5-1-codex-mini'
 
 @description('Azure OpenAI model name')
-param azureOpenAiModelName string = 'gpt-4o-mini'
+param azureOpenAiModelName string = 'gpt-5.1-codex-mini'
 
 @description('Azure OpenAI model version')
-param azureOpenAiModelVersion string = '2024-07-18'
+param azureOpenAiModelVersion string = '2025-11-13'
 
 // ── Name variables ───────────────────────────────────────────
 var suffix             = '${prefix}-${environment}'
