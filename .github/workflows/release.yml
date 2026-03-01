@@ -281,20 +281,8 @@ jobs:
           pip install -r requirements.txt \
             --target=".python_packages/lib/site-packages"
 
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Upgrade Azure CLI (ensure FC1 support via ARM OneDeploy API)
-        run: az upgrade --yes --all || true
-
-      - name: Deploy to Azure Functions
+      - name: Package backend
         run: |
-          SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
-          fi
           cd backend
           zip -r ../func-package.zip . \
             --exclude "local.settings.json" \
@@ -308,17 +296,20 @@ jobs:
             --exclude "tests/*" \
             --exclude "*.test.py" \
             --exclude "e2e-results/*"
-          cd ..
-          # Flex Consumption (FC1) requires ARM OneDeploy API, not Kudu.
-          # Azure CLI 2.61+ uses ARM OneDeploy automatically for FC1 plans
-          # (no data-plane storage permission required – ARM handles the blob internally).
-          az functionapp deploy \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            "${SUBSCRIPTION_ARGS[@]}" \
-            --src-path func-package.zip \
-            --type zip \
-            --async false
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Functions
+        # azure/functions-action@v1 is the officially supported action for FC1 (Flex Consumption).
+        # It uses ARM-based deployment (not Kudu) and works with Azure Login RBAC credentials.
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP_NAME }}
+          package: func-package.zip
+          # No publish-profile needed – Azure Login (above) provides RBAC credentials.
 
       - name: Configure Azure OpenAI app settings
         env:
