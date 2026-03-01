@@ -9,12 +9,14 @@ import {
   Maximize2,
   GitBranch,
   LayoutDashboard,
+  Download,
 } from 'lucide-react'
 import type { FlowNodeData } from '@/types'
 import type { Node } from '@xyflow/react'
 import { v4 as uuidv4 } from 'uuid'
 import { applyDagreLayout } from '@/lib/dagLayout'
 import { parseFlowFromMarkdown } from '@/lib/flowParser'
+import { exportFlowAsSvg, downloadSvg } from '@/lib/exportSvg'
 
 export function CanvasEditToolbar() {
   const canvasMode = useStore((s) => s.canvasMode)
@@ -23,8 +25,9 @@ export function CanvasEditToolbar() {
   const nodes = useStore((s) => s.nodes)
   const edges = useStore((s) => s.edges)
   const markdown = useStore((s) => s.markdown)
+  const currentNote = useStore((s) => s.currentNote)
 
-  const { zoomIn, zoomOut, fitView } = useReactFlow()
+  const { zoomIn, zoomOut, fitView, getNodes, getEdges } = useReactFlow()
 
   const handleAddNode = () => {
     const newNode: Node<FlowNodeData> = {
@@ -47,6 +50,14 @@ export function CanvasEditToolbar() {
     const { nodes: layouted, edges: layoutedEdges } = applyDagreLayout(parsed)
     applyCanvasEdit(layouted, layoutedEdges)
     setTimeout(() => fitView({ padding: 0.2 }), 100)
+  }
+
+  const handleExportSvg = () => {
+    const liveNodes = getNodes() as Node<FlowNodeData>[]
+    const liveEdges = getEdges()
+    const title = currentNote?.title ?? 'FlowNote'
+    const svg = exportFlowAsSvg(liveNodes, liveEdges, title)
+    downloadSvg(svg, title)
   }
 
   return (
@@ -89,6 +100,15 @@ export function CanvasEditToolbar() {
       <ToolBtn icon={<ZoomIn className="w-3.5 h-3.5" />} title="ズームイン" onClick={() => zoomIn()} />
       <ToolBtn icon={<ZoomOut className="w-3.5 h-3.5" />} title="ズームアウト" onClick={() => zoomOut()} />
       <ToolBtn icon={<Maximize2 className="w-3.5 h-3.5" />} title="フィット" onClick={() => fitView({ padding: 0.2 })} />
+
+      <div className="h-px bg-zinc-700 my-0.5" />
+
+      {/* Export SVG */}
+      <ToolBtn
+        icon={<Download className="w-3.5 h-3.5" />}
+        title="SVGとして書き出し"
+        onClick={handleExportSvg}
+      />
     </div>
   )
 }
