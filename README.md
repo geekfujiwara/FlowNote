@@ -374,52 +374,57 @@ graph TB
 
 ## ディレクトリ構成
 
-```
-FlowNote/
-├── src/
-│   ├── auth/                   # 認証（MSAL + パスワードログイン）
-│   ├── components/
-│   │   ├── analytics/          # アナリティクスパネル
-│   │   ├── canvas/             # フローキャンバス・カスタムノード・バージョン履歴
-│   │   ├── chat/
-│   │   │   ├── ChatPanel.tsx       # チャット/ログ タブ切り替えパネル
-│   │   │   ├── AgentLogViewer.tsx  # リクエスト/レスポンス JSON ログビューア
-│   │   │   ├── AgentTraceViewer.tsx# ツール呼び出しトレース表示
-│   │   │   └── SuggestionCard.tsx  # 差分プレビュー・適用カード
-│   │   ├── editor/             # マークダウンエディタ・ツールバー
-│   │   ├── layout/             # アプリ全体レイアウト
-│   │   ├── shared/             # 共有コンポーネント
-│   │   ├── sidebar/            # ノート一覧サイドバー
-│   │   └── templates/          # テンプレートギャラリー
-│   ├── hooks/
-│   │   └── useSignalR.ts       # SignalR リアルタイム接続フック
-│   ├── lib/
-│   │   ├── appInsights.ts      # Application Insights 初期化
-│   │   ├── dagLayout.ts        # Dagre 自動レイアウト
-│   │   ├── exportSvg.ts        # SVG エクスポート
-│   │   ├── flowParser.ts       # flow ブロック構文パーサー
-│   │   ├── mockApi.ts          # ローカル開発用モック API
-│   │   └── templates.ts        # 10 種類のデザインテンプレート定義
-│   ├── store/
-│   │   └── useStore.ts         # Zustand ストア（agentLogs 含む全状態）
-│   ├── test/                   # Vitest テストスイート (176 tests)
-│   └── types/
-│       └── index.ts            # 共通型定義（AgentLog 含む）
-├── backend/
-│   ├── function_app.py         # Azure Functions エントリポイント（OTEL shim v3）
-│   ├── agents/
-│   │   └── flow_agent.py       # AI エージェント実装（Managed Identity 認証）
-│   └── requirements.txt
-├── infra/
-│   └── main.bicep              # Azure Bicep IaC（OpenAI + MI + RBAC 含む）
-├── .github/
-│   └── workflows/
-│       ├── release.yml         # CI/CD（push to main で自動実行）
-│       ├── deploy.yml          # アプリデプロイ（レガシー）
-│       └── infra-deploy.yml    # インフラプロビジョニング（手動）
-├── e2e/                        # Playwright E2E テスト
-├── .env.example                # 環境変数サンプル
-└── staticwebapp.config.json    # SWA ルーティング設定
+```mermaid
+graph TD
+    Root["FlowNote/"]
+
+    Root --> SRC["src/"]
+    Root --> BE["backend/"]
+    Root --> INFRA["infra/"]
+    Root --> GH[".github/workflows/"]
+    Root --> E2E["e2e/"]
+    Root --> CFG["設定ファイル群\n.env.example\nstaticwebapp.config.json\nvite.config.ts\ntsconfig.json"]
+
+    SRC --> AUTH["auth/\n認証 MSAL + パスワード"]
+    SRC --> COMP["components/"]
+    SRC --> HOOKS["hooks/\nuseSignalR.ts"]
+    SRC --> LIB["lib/"]
+    SRC --> STORE["store/\nuseStore.ts"]
+    SRC --> TEST["test/\nVitest テスト"]
+    SRC --> TYPES["types/\nindex.ts"]
+
+    COMP --> CA["analytics/\nアナリティクス"]
+    COMP --> CC["canvas/\nフローキャンバス・ノード・バージョン"]
+    COMP --> CH["chat/\nChatPanel / ログビューア / トレース"]
+    COMP --> CE["editor/\nMarkdownエディタ・ツールバー"]
+    COMP --> CL["layout/\nAppLayout"]
+    COMP --> CS["shared/\n共有コンポーネント"]
+    COMP --> CSI["sidebar/\nノート一覧"]
+    COMP --> CT["templates/\nテンプレートギャラリー"]
+
+    LIB --> LI1["appInsights.ts"]
+    LIB --> LI2["dagLayout.ts"]
+    LIB --> LI3["exportSvg.ts"]
+    LIB --> LI4["flowParser.ts"]
+    LIB --> LI5["mockApi.ts"]
+    LIB --> LI6["templates.ts"]
+
+    BE --> BEF["function_app.py\nAzure Functions エントリ"]
+    BE --> BEA["agents/flow_agent.py\nAI エージェント"]
+    BE --> BER["requirements.txt"]
+
+    INFRA --> BI["main.bicep\nAzure IaC"]
+
+    GH --> GH1["release.yml\nCI/CD push to main"]
+    GH --> GH2["deploy.yml\nアプリデプロイ レガシー"]
+    GH --> GH3["infra-deploy.yml\nインフラ手動プロビジョニング"]
+
+    classDef dir fill:#1e293b,color:#94a3b8,stroke:#334155
+    classDef file fill:#0f172a,color:#64748b,stroke:#1e293b
+    class Root,SRC,BE,INFRA,GH,E2E dir
+    class AUTH,COMP,HOOKS,LIB,STORE,TEST,TYPES dir
+    class CA,CC,CH,CE,CL,CS,CSI,CT dir
+    class LI1,LI2,LI3,LI4,LI5,LI6,BEF,BEA,BER,BI,GH1,GH2,GH3,CFG file
 ```
 
 ---

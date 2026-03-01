@@ -187,7 +187,7 @@ export function AppLayout() {
                 chatOpen ? 'w-80' : 'w-0'
               }`}
             >
-              <ChatPanel />
+              <ChatPanel onOpenTemplates={() => setTemplateGalleryOpen(true)} />
             </div>
           </>
         )}
@@ -230,7 +230,7 @@ export function AppLayout() {
               </div>
               {/* Panel content */}
               <div className="flex-1 overflow-hidden">
-                {rightPanel === 'chat' ? <ChatPanel /> : <VersionHistoryPanel />}
+                {rightPanel === 'chat' ? <ChatPanel onOpenTemplates={() => setTemplateGalleryOpen(true)} /> : <VersionHistoryPanel />}
               </div>
             </div>
 
