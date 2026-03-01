@@ -32,16 +32,12 @@ export const CustomNode = memo(function CustomNode({ data, selected }: NodeProps
   // ── Input node (rounded pill, source only) ───────────────
   if (nodeType === 'input') {
     return (
-      <div className="relative">
-        {/* Visual shape */}
-        <div
-          className={`min-w-40 bg-indigo-700 text-white rounded-full border-2 border-indigo-400
-            px-4 py-2 flex items-center justify-center text-sm font-medium shadow-md
-            transition-all duration-300 ${ringClass}`}
-        >
-          <span className="truncate max-w-32">{label}</span>
-        </div>
-        {/* Handle is a sibling of the shape div – positioned at the outer boundary */}
+      <div
+        className={`relative min-w-40 bg-indigo-700 text-white rounded-full border-2 border-indigo-400
+          px-4 py-2 flex items-center justify-center text-sm font-medium shadow-md
+          transition-all duration-300 ${ringClass}`}
+      >
+        <span className="truncate max-w-32">{label}</span>
         <Handle
           type="source"
           position={Position.Bottom}
@@ -54,19 +50,17 @@ export const CustomNode = memo(function CustomNode({ data, selected }: NodeProps
   // ── Output node (rounded pill, target only) ──────────────
   if (nodeType === 'output') {
     return (
-      <div className="relative">
+      <div
+        className={`relative min-w-40 bg-emerald-700 text-white rounded-full border-2 border-emerald-400
+          px-4 py-2 flex items-center justify-center text-sm font-medium shadow-md
+          transition-all duration-300 ${ringClass}`}
+      >
         <Handle
           type="target"
           position={Position.Top}
           style={makeHandleStyle('#34d399')}
         />
-        <div
-          className={`min-w-40 bg-emerald-700 text-white rounded-full border-2 border-emerald-400
-            px-4 py-2 flex items-center justify-center text-sm font-medium shadow-md
-            transition-all duration-300 ${ringClass}`}
-        >
-          <span className="truncate max-w-32">{label}</span>
-        </div>
+        <span className="truncate max-w-32">{label}</span>
       </div>
     )
   }
@@ -108,19 +102,17 @@ export const CustomNode = memo(function CustomNode({ data, selected }: NodeProps
 
   // ── Default node (rectangle, target + source) ────────────
   return (
-    <div className="relative">
+    <div
+      className={`relative min-w-40 bg-zinc-800 text-zinc-100 rounded-xl border border-zinc-600
+        px-4 py-2 flex items-center justify-center text-sm font-medium shadow-md
+        transition-all duration-300 ${ringClass}`}
+    >
       <Handle
         type="target"
         position={Position.Top}
         style={makeHandleStyle('#a1a1aa')}
       />
-      <div
-        className={`min-w-40 bg-zinc-800 text-zinc-100 rounded-xl border border-zinc-600
-          px-4 py-2 flex items-center justify-center text-sm font-medium shadow-md
-          transition-all duration-300 ${ringClass}`}
-      >
-        <span className="truncate max-w-32">{label}</span>
-      </div>
+      <span className="truncate max-w-32">{label}</span>
       <Handle
         type="source"
         position={Position.Bottom}
