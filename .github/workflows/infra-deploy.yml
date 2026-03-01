@@ -23,7 +23,7 @@ on:
 
 env:
   RESOURCE_GROUP: rg-flownote
-  SUBSCRIPTION_ID: d0b22a7f-8129-4a0d-bd5a-e8af107be62b
+  SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
 jobs:
   deploy-infra:
