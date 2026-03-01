@@ -286,6 +286,9 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Upgrade Azure CLI (ensure FC1 support via ARM OneDeploy API)
+        run: az upgrade --yes --all || true
+
       - name: Deploy to Azure Functions
         run: |
           SUBSCRIPTION_ARGS=()
@@ -306,32 +309,16 @@ jobs:
             --exclude "*.test.py" \
             --exclude "e2e-results/*"
           cd ..
-          # Flex Consumption (FC1) uses blob-based deployment.
-          # Upload the zip to the deployments blob container configured in functionAppConfig.deployment.storage.
-          # Use account-key auth because the service principal may lack Storage Blob Data Contributor
-          # (data-plane) RBAC – Contributor role (management-plane) is sufficient to list storage keys.
-          STORAGE_ACCOUNT=$(az functionapp config appsettings list \
+          # Flex Consumption (FC1) requires ARM OneDeploy API, not Kudu.
+          # Azure CLI 2.61+ uses ARM OneDeploy automatically for FC1 plans
+          # (no data-plane storage permission required – ARM handles the blob internally).
+          az functionapp deploy \
             --name "${{ env.FUNCTION_APP_NAME }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
-            --query "[?name=='AzureWebJobsStorage__accountName'].value | [0]" \
-            --output tsv)
-          echo "Uploading to storage account: $STORAGE_ACCOUNT"
-          STORAGE_KEY=$(az storage account keys list \
-            --account-name "$STORAGE_ACCOUNT" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            "${SUBSCRIPTION_ARGS[@]}" \
-            --query "[0].value" \
-            --output tsv)
-          echo "::add-mask::$STORAGE_KEY"
-          az storage blob upload \
-            --account-name "$STORAGE_ACCOUNT" \
-            --account-key "$STORAGE_KEY" \
-            --container-name deployments \
-            --name func-deployment.zip \
-            --file func-package.zip \
-            --overwrite
-          echo "✅ Deployment package uploaded. Flex Consumption app will restart automatically."
+            --src-path func-package.zip \
+            --type zip \
+            --async false
 
       - name: Configure Azure OpenAI app settings
         env:
