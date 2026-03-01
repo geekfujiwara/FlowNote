@@ -5,14 +5,15 @@
 </p>
 
 <p align="center">
-  <strong>マークダウン × キャンバス × AI エージェントで、フローチャートを直感的に共同編集できる Web アプリケーション</strong>
+  <strong>マークダウン × キャンバス × AI エージェントで、フローチャートを直感的に編集できる Web アプリケーション</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/geekfujiwara/FlowNote/actions/workflows/deploy.yml">
-    <img src="https://github.com/geekfujiwara/FlowNote/actions/workflows/deploy.yml/badge.svg" alt="Deploy Application" />
+  <a href="https://github.com/geekfujiwara/FlowNote/actions/workflows/release.yml">
+    <img src="https://github.com/geekfujiwara/FlowNote/actions/workflows/release.yml/badge.svg" alt="Release" />
   </a>
-  <img src="https://img.shields.io/badge/tests-153%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-176%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Azure%20OpenAI-gpt--5.1--codex--mini-412991?logo=openai&logoColor=white" alt="Azure OpenAI" />
   <img src="https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black" alt="React" />
   <img src="https://img.shields.io/badge/Azure-Static%20Web%20Apps-0078d4?logo=microsoftazure&logoColor=white" alt="Azure" />
@@ -30,8 +31,232 @@
 
 ## 概要
 
-FlowNote は、**マークダウン記法でフローチャートを記述**し、リアルタイムでキャンバスに可視化できる Next-gen ノートアプリです。  
-AI エージェント（Azure OpenAI / OpenAI）と連携して、プロンプト一つでノードやエッジを自動生成・編集できます。
+FlowNote は、**マークダウン記法でフローチャートを記述**し、リアルタイムでキャンバスに可視化できる Web アプリです。  
+Azure OpenAI (gpt-5.1-codex-mini) と Microsoft Agent Framework を組み合わせた AI エージェントが、自然言語の指示でノードやエッジを自動生成・編集します。  
+エージェントへのすべてのリクエスト・レスポンスは **ログビューア** でリアルタイムに確認できます。
+
+````
+# サンプルフロー
+
+```flow
+[[start]] 開始
+[process] 処理
+{branch} 条件分岐
+((end)) 終了
+
+[start] -> [process]
+[process] -> {branch}
+{branch} -> ((end)) : Yes
+```
+````
+
+---
+
+## アーキテクチャ
+
+### システム全体構成
+
+```mermaid
+graph TB
+    subgraph Client["ブラウザ (React 19 + TypeScript)"]
+        direction TB
+        UI["UI レイヤー React + Tailwind CSS"]
+        Store["状態管理 Zustand Store"]
+        Canvas["フローキャンバス @xyflow/react"]
+        Editor["Markdown エディタ CodeMirror"]
+        Chat["AI チャットパネル + ログビューア"]
+    end
+
+    subgraph Azure["Azure (japaneast / rg-flownote)"]
+        SWA["🌐 Azure Static Web Apps\nflownote-prod-swa\nFree tier · CDN"]
+        Func["⚡ Azure Functions\nflownote-prod-func\nFlexConsumption · Python 3.11"]
+        OAI["🤖 Azure OpenAI\nflownote-prod-oai\ngpt-5.1-codex-mini (S0)"]
+        Blob["💾 Azure Blob Storage\nflownoteprodst\nManaged Identity"]
+        APPI["📊 Application Insights"]
+        LAW["📋 Log Analytics Workspace"]
+    end
+
+    subgraph GitHub["GitHub"]
+        Repo["📦 geekfujiwara/FlowNote"]
+        Actions["🔄 GitHub Actions release.yml"]
+    end
+
+    User(["👤 ユーザー"]) --> SWA
+    SWA --> Client
+    Client -- "REST API" --> Func
+    Func -- "Managed Identity" --> OAI
+    Func -- "Managed Identity" --> Blob
+    Func --> APPI
+    APPI --> LAW
+    Repo --> Actions
+    Actions -- "deploy" --> SWA
+    Actions -- "deploy" --> Func
+
+    classDef azure fill:#0078d4,color:#fff,stroke:#005a9e
+    classDef client fill:#1a1a2e,color:#fff,stroke:#4444aa
+    classDef github fill:#24292e,color:#fff,stroke:#444
+    class SWA,Func,OAI,Blob,APPI,LAW azure
+    class UI,Store,Canvas,Editor,Chat client
+    class Repo,Actions github
+```
+
+---
+
+### フロントエンド コンポーネント構成
+
+```mermaid
+graph LR
+    App["App.tsx (AuthGuard)"]
+
+    App --> Layout["AppLayout"]
+    Layout --> Sidebar["Sidebar ノート一覧"]
+    Layout --> Main["メインエリア"]
+    Layout --> ChatPanel["ChatPanel"]
+
+    Main --> Editor["MarkdownEditor CodeMirror"]
+    Main --> Canvas["FlowCanvas @xyflow/react"]
+    Main --> Toolbar["CanvasEditToolbar 編集/SVG出力"]
+
+    ChatPanel --> Tab1["チャットタブ MessageBubble SuggestionCard AgentTraceViewer"]
+    ChatPanel --> Tab2["ログタブ AgentLogViewer リクエスト/レスポンス JSON"]
+
+    Canvas --> CustomNode["CustomNode input/output/selector/default"]
+    Canvas --> VersionPanel["VersionHistory"]
+
+    App --> Templates["TemplateGallery"]
+    App --> Analytics["AnalyticsDashboard"]
+
+    style ChatPanel fill:#4b2d8e,color:#fff
+    style Tab2 fill:#6d28d9,color:#fff
+```
+
+---
+
+### AI エージェント データフロー
+
+```mermaid
+sequenceDiagram
+    participant U as 👤 ユーザー
+    participant CP as ChatPanel
+    participant ZS as Zustand Store
+    participant API as mockApi.ts
+    participant AZF as Azure Functions
+    participant AFW as flow_agent.py
+    participant AOAI as Azure OpenAI
+
+    U->>CP: メッセージ入力 → 送信
+    CP->>ZS: sendMessageToAgent(message)
+    ZS->>ZS: agentStatus = 'thinking'
+    ZS->>API: agentChat(payload)
+    API->>AZF: POST /api/agent/chat
+    AZF->>AFW: run_flow_agent()
+    AFW->>AOAI: Azure AD Token (Managed Identity)
+    AOAI-->>AFW: 応答 JSON
+    AFW-->>AZF: Suggestion
+    AZF-->>API: 200 OK
+    API-->>ZS: Suggestion
+    ZS->>ZS: chatMessages 追加<br/>agentLogs に request/response 記録<br/>pendingSuggestion 設定
+    ZS-->>CP: 再レンダリング
+    CP-->>U: 応答 + 差分プレビュー
+    U->>CP: 「適用」ボタン
+    CP->>ZS: applySuggestion()
+    ZS->>ZS: Markdown 更新 → Canvas 更新<br/>VersionHistory に保存
+```
+
+---
+
+### CI/CD パイプライン
+
+```mermaid
+flowchart TD
+    Push(["📤 git push origin main"]) --> W["release.yml GitHub Actions"]
+
+    W --> J1["① CI lint · type-check · tests Vitest 176件"]
+    W --> J2["② Check secrets AZURE_CREDENTIALS 確認"]
+
+    J1 --> J3["③ Backend deploy Azure Functions Python 3.11"]
+    J2 --> J3
+    J1 --> J4["④ Build Frontend npm ci → tsc → vite build"]
+    J2 --> J4
+
+    J3 --> J5["⑤ Frontend deploy Azure Static Web Apps"]
+    J4 --> J5
+    J5 --> J6["⑥ Release Summary"]
+
+    J3 -->|secrets未設定| Skip1["⏭ スキップ"]
+    J5 -->|secrets未設定| Skip2["⏭ スキップ"]
+
+    style J1 fill:#166534,color:#fff
+    style J3 fill:#1e40af,color:#fff
+    style J4 fill:#1e40af,color:#fff
+    style J5 fill:#1e40af,color:#fff
+    style J6 fill:#166534,color:#fff
+    style Skip1 fill:#374151,color:#9ca3af
+    style Skip2 fill:#374151,color:#9ca3af
+```
+
+---
+
+### Azure インフラ構成 (Bicep IaC)
+
+```mermaid
+graph TB
+    subgraph RG["リソースグループ: rg-flownote (japaneast)"]
+        direction TB
+
+        subgraph Compute["コンピュート"]
+            SWA["Static Web Apps\nflownote-prod-swa\nFree"]
+            Func["Functions FlexConsumption\nflownote-prod-func\nPython 3.11"]
+        end
+
+        subgraph AI["AI / 推論"]
+            OAI["Azure OpenAI S0\nflownote-prod-oai"]
+            Model["gpt-5-1-codex-mini\nGlobalStandard 10TPM"]
+            OAI --> Model
+        end
+
+        subgraph Data["データ"]
+            ST["Storage Account\nflownoteprodst\nShared Key 無効"]
+            Blob["Blob Container notes"]
+            ST --> Blob
+        end
+
+        subgraph Monitor["監視"]
+            APPI["Application Insights"]
+            LAW["Log Analytics 30日保持"]
+            APPI --> LAW
+        end
+
+        subgraph IAM["マネージドID & RBAC"]
+            MI["SystemAssigned MI"]
+            R1["Storage Blob Data Owner"]
+            R2["Cognitive Services OpenAI User"]
+            MI --> R1
+            MI --> R2
+        end
+
+        Func -- SystemAssigned --> MI
+        Func --> APPI
+        Func -- Blob SDK --> Blob
+        Func -- AD Token --> OAI
+    end
+
+    classDef compute fill:#1e40af,color:#fff
+    classDef ai fill:#7c3aed,color:#fff
+    classDef data fill:#065f46,color:#fff
+    classDef monitor fill:#92400e,color:#fff
+    classDef iam fill:#374151,color:#fff
+    class SWA,Func compute
+    class OAI,Model ai
+    class ST,Blob data
+    class APPI,LAW monitor
+    class MI,R1,R2 iam
+```
+
+---
+</p>
+
+
 
 ```
 # サンプルフロー
@@ -54,15 +279,16 @@ AI エージェント（Azure OpenAI / OpenAI）と連携して、プロンプ�
 
 | 機能 | 説明 |
 |---|---|
-| 📝 **マークダウンエディタ** | CodeMirror ベースのリッチエディタ。独自 `flow` コードブロック記法でノード・エッジを定義 |
-| 🎨 **フローキャンバス** | @xyflow/react によるインタラクティブなキャンバス。Dagre 自動レイアウト対応 |
-| 🤖 **AI エージェント** | チャットパネルでフローの追加・変更・提案を自然言語で指示。差分プレビューから適用/破棄が可能 |
-| 🗂️ **10種類のテンプレート** | フィッシュボーン・SWOT・マインドマップ・ロードマップなど、カテゴリ別デザインテンプレートを内蔵 |
-| 🔄 **バージョン履歴** | フロー変更の履歴を自動記録。任意の時点に1クリックで復元可能 |
-| 📊 **アナリティクス** | ノート数・エッジ数・AI 使用回数などの利用状況ダッシュボード |
-| 🌐 **リアルタイム同期** | Azure SignalR Service による複数ユーザー間のリアルタイム共同編集 |
-| 🔍 **Application Insights** | Azure Application Insights によるテレメトリ収集・パフォーマンス監視 |
-| 🔐 **認証** | デモモード用シンプルパスワードログイン。本番環境は Microsoft Entra ID (Azure AD) |
+| 📝 **マークダウンエディタ** | CodeMirror ベース。独自 `flow` コードブロック記法でノード・エッジを定義 |
+| 🎨 **フローキャンバス** | @xyflow/react によるインタラクティブキャンバス。Dagre 自動レイアウト対応 |
+| 🤖 **AI エージェント** | チャットパネルで自然言語指示。差分プレビューから適用/破棄が可能 |
+| 🪵 **エージェントログビューア** | 送受信 JSON をリクエスト/レスポンスタブで確認・クリップボードコピー可能 |
+| 📤 **SVG エクスポート** | フロー全体を SVG ファイルとしてダウンロード |
+| 🗂️ **10種類のテンプレート** | フィッシュボーン・SWOT・マインドマップ等。AI 専用プロンプト付き |
+| 🔄 **バージョン履歴** | フロー変更を自動記録。任意時点に1クリックで復元 |
+| 📊 **アナリティクス** | ノート数・AI 使用回数などの利用状況ダッシュボード |
+| 🔍 **Application Insights** | テレメトリ収集・パフォーマンス監視 |
+| 🔐 **認証** | デモ用パスワードログイン / Microsoft Entra ID (MSAL) 対応 |
 
 ---
 
@@ -135,14 +361,14 @@ AI エージェント（Azure OpenAI / OpenAI）と連携して、プロンプ�
 
 ### Azure インフラ
 
-```
-Azure Static Web Apps       ← フロントエンドホスティング
-Azure Functions (Linux)     ← Python バックエンド API
-Azure Blob Storage          ← ノートデータ永続化
-Azure SignalR Service       ← リアルタイム同期
-Azure Application Insights  ← テレメトリ・監視
-Azure Log Analytics         ← ログ集約
-```
+| リソース | SKU | 用途 |
+|---|---|---|
+| Azure Static Web Apps | Free | フロントエンドホスティング・CDN |
+| Azure Functions | FlexConsumption (Python 3.11) | バックエンド API |
+| Azure OpenAI | S0 (japaneast) | gpt-5.1-codex-mini 推論 |
+| Azure Blob Storage | Standard LRS | ノートデータ永続化 |
+| Application Insights | — | テレメトリ・監視 |
+| Log Analytics Workspace | PerGB2018 | ログ集約（30日） |
 
 ---
 
@@ -152,15 +378,17 @@ Azure Log Analytics         ← ログ集約
 FlowNote/
 ├── src/
 │   ├── auth/                   # 認証（MSAL + パスワードログイン）
-│   │   ├── AuthGuard.tsx       # 認証ガード・ログイン画面
-│   │   └── msalConfig.ts       # MSAL 設定
 │   ├── components/
 │   │   ├── analytics/          # アナリティクスパネル
 │   │   ├── canvas/             # フローキャンバス・カスタムノード・バージョン履歴
-│   │   ├── chat/               # AI チャットパネル・提案カード
+│   │   ├── chat/
+│   │   │   ├── ChatPanel.tsx       # チャット/ログ タブ切り替えパネル
+│   │   │   ├── AgentLogViewer.tsx  # リクエスト/レスポンス JSON ログビューア
+│   │   │   ├── AgentTraceViewer.tsx# ツール呼び出しトレース表示
+│   │   │   └── SuggestionCard.tsx  # 差分プレビュー・適用カード
 │   │   ├── editor/             # マークダウンエディタ・ツールバー
 │   │   ├── layout/             # アプリ全体レイアウト
-│   │   ├── shared/             # 共有コンポーネント（メタデータパネル等）
+│   │   ├── shared/             # 共有コンポーネント
 │   │   ├── sidebar/            # ノート一覧サイドバー
 │   │   └── templates/          # テンプレートギャラリー
 │   ├── hooks/
@@ -168,24 +396,28 @@ FlowNote/
 │   ├── lib/
 │   │   ├── appInsights.ts      # Application Insights 初期化
 │   │   ├── dagLayout.ts        # Dagre 自動レイアウト
+│   │   ├── exportSvg.ts        # SVG エクスポート
 │   │   ├── flowParser.ts       # flow ブロック構文パーサー
-│   │   ├── mockApi.ts          # ローカル開発用モック API（localStorage）
+│   │   ├── mockApi.ts          # ローカル開発用モック API
 │   │   └── templates.ts        # 10 種類のデザインテンプレート定義
 │   ├── store/
-│   │   └── useStore.ts         # Zustand ストア（全アプリ状態）
-│   ├── test/                   # Vitest テストスイート (153 tests)
-│   └── types/                  # 共通型定義 (index.ts)
+│   │   └── useStore.ts         # Zustand ストア（agentLogs 含む全状態）
+│   ├── test/                   # Vitest テストスイート (176 tests)
+│   └── types/
+│       └── index.ts            # 共通型定義（AgentLog 含む）
 ├── backend/
-│   ├── function_app.py         # Azure Functions エントリポイント
+│   ├── function_app.py         # Azure Functions エントリポイント（OTEL shim v3）
 │   ├── agents/
-│   │   └── flow_agent.py       # AI エージェント実装
+│   │   └── flow_agent.py       # AI エージェント実装（Managed Identity 認証）
 │   └── requirements.txt
 ├── infra/
-│   └── main.bicep              # Azure インフラ定義（Bicep IaC）
+│   └── main.bicep              # Azure Bicep IaC（OpenAI + MI + RBAC 含む）
 ├── .github/
 │   └── workflows/
-│       ├── deploy.yml          # アプリデプロイ CI/CD（push to main）
+│       ├── release.yml         # CI/CD（push to main で自動実行）
+│       ├── deploy.yml          # アプリデプロイ（レガシー）
 │       └── infra-deploy.yml    # インフラプロビジョニング（手動）
+├── e2e/                        # Playwright E2E テスト
 ├── .env.example                # 環境変数サンプル
 └── staticwebapp.config.json    # SWA ルーティング設定
 ```
@@ -289,16 +521,17 @@ npm run test:watch
 npm run test:coverage
 ```
 
-**153 件のテスト**が 6 ファイルで実行されます：
+**176 件のテスト**が実行されます：
 
 | テストファイル | テスト数 | 内容 |
 |---|---|---|
 | `flowParser.test.ts` | 17 | flow ブロックパーサーの単体テスト |
 | `dagLayout.test.ts` | 12 | Dagre レイアウトの単体テスト |
 | `mockApi.test.ts` | 17 | モック API の統合テスト |
-| `store.test.ts` | 36 | Zustand ストアのアクションテスト |
+| `store.test.ts` | 44 | Zustand ストア（agentLogs テスト含む） |
 | `templates.test.ts` | 36 | 10 種類のテンプレートデータ検証 |
 | `components.test.tsx` | 35 | React コンポーネントの UI テスト |
+| `exportSvg.test.ts` | 15 | SVG エクスポートの単体テスト |
 
 ---
 
@@ -350,13 +583,33 @@ FlowNote 独自の Markdown 拡張記法です。コードブロックの言語�
 
 ## Azure デプロイ
 
-### Step 1: サービスプリンシパル作成
+### デプロイ済み環境
+
+| リソース | URL / 値 |
+|---|---|
+| フロントエンド (SWA) | `https://red-bay-0ae91090f.2.azurestaticapps.net` |
+| バックエンド (Functions) | `https://flownote-prod-func.azurewebsites.net` |
+| Azure OpenAI | `https://flownote-prod-oai.openai.azure.com/` |
+| リージョン | japaneast |
+
+### 構築される Azure リソース
+
+| リソース | SKU / プラン | 用途 |
+|---|---|---|
+| Static Web Apps | Free | フロントエンドホスティング・CDN |
+| Azure Functions | FlexConsumption (Python 3.11) | バックエンド API |
+| Azure OpenAI | S0 | gpt-5.1-codex-mini 推論エンジン |
+| Storage Account | Standard LRS (Managed Identity) | ノートデータ永続化 |
+| Application Insights | — | テレメトリ・監視 |
+| Log Analytics Workspace | PerGB2018 (30日) | ログ集約 |
+
+### 新規デプロイ手順
+
+#### Step 1: サービスプリンシパル作成
 
 ```bash
-# リソースグループを事前に作成
 az group create --name rg-flownote --location japaneast
 
-# サービスプリンシパルを作成して JSON を取得
 az ad sp create-for-rbac \
   --name "flownote-github-actions" \
   --role contributor \
@@ -366,93 +619,67 @@ az ad sp create-for-rbac \
 
 出力された JSON を GitHub Secrets の **`AZURE_CREDENTIALS`** に登録します。
 
-### Step 2: インフラをプロビジョニング
+#### Step 2: インフラをプロビジョニング
 
-GitHub リポジトリの **Actions** タブ → **Deploy Infrastructure** → **Run workflow** を実行します。
+Actions タブ → **Deploy Infrastructure** → **Run workflow** を実行します。
 
-| Input | 値 |
-|---|---|
-| environment | `prod` |
-| location | `japaneast`（または任意のリージョン） |
-
-ワークフロー完了後、出力された値を GitHub Secrets に登録します：
+#### Step 3: Secrets 登録
 
 | Secret 名 | 説明 |
 |---|---|
-| `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA デプロイトークン（ワークフロー出力） |
-| `VITE_API_BASE_URL` | Functions URL（ワークフロー出力） |
-| `VITE_APPINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列（Azure Portal から取得） |
+| `AZURE_CREDENTIALS` | サービスプリンシパル JSON |
+| `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA デプロイトークン |
+| `VITE_API_BASE_URL` | Functions URL |
+| `VITE_APPINSIGHTS_CONNECTION_STRING` | Application Insights 接続文字列 |
 
-### Step 3: アプリをデプロイ
-
-`main` ブランチへの push で **Deploy Application** ワークフローが自動実行されます。
+#### Step 4: アプリをデプロイ
 
 ```bash
 git push origin main
 ```
 
-> **Note:** GitHub Secrets が未設定の場合、デプロイステップはスキップされ、CI ビルド・テストのみ実行されます。
-
-### 構築される Azure リソース
-
-| リソース | SKU | 用途 |
-|---|---|---|
-| Static Web Apps | Free | フロントエンドホスティング・CDN |
-| App Service Plan | B1 (Linux) | Functions 実行プラン |
-| Azure Functions | Python 3.11 | バックエンド API |
-| Storage Account | Standard LRS | ノートデータ・Functions 依存 |
-| SignalR Service | Free (1 unit) | リアルタイム同期 |
-| Application Insights | — | テレメトリ・監視 |
-| Log Analytics Workspace | PerGB2018 | ログ集約（30日保持） |
+> **Note:** GitHub Secrets が未設定の場合、デプロイステップはスキップされ CI のみ実行されます。
 
 ---
 
 ## CI/CD ワークフロー
 
-```
-push to main
-    │
-    ├─ check-secrets ─────── シークレット存在確認
-    │                         ├─ AZURE_STATIC_WEB_APPS_API_TOKEN の有無を確認
-    │                         └─ AZURE_CREDENTIALS の有無を確認
-    │
-    ├─ build-frontend ───── npm ci → npm test (153 tests) → npm run build（常時実行）
-    │
-    ├─ deploy-frontend ──── Azure Static Web Apps デプロイ
-    │                         └─ SWA トークンが設定されている場合のみ実行
-    │
-    └─ deploy-backend ───── Azure Functions デプロイ
-                              └─ Azure 認証情報が設定されている場合のみ実行
-```
-
-手動トリガーのワークフロー：
-
 | ワークフロー | トリガー | 目的 |
 |---|---|---|
-| `deploy.yml` | push to main / 手動 | アプリデプロイ + CI |
+| `release.yml` | push to main / 手動 | CI + バックエンド + フロントエンドデプロイ |
+| `deploy.yml` | push to main / 手動 | アプリデプロイ（レガシー） |
 | `infra-deploy.yml` | 手動のみ | Azure インフラプロビジョニング |
+
+`release.yml` のジョブ構成は [CI/CD パイプライン図](#cicd-パイプライン) を参照してください。
 
 ---
 
 ## AI エージェント設定
 
-バックエンドの AI エージェントは Azure OpenAI または OpenAI のどちらかで動作します。
+### Azure OpenAI（本番環境 – Managed Identity）
 
-### Azure OpenAI（推奨）
+本番環境では API キー不要。Function App の SystemAssigned マネージドID が  
+`Cognitive Services OpenAI User` ロールを持ち、自動的にトークンを取得します。
 
-```bash
-AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.openai.azure.com
-AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o-mini           # デプロイ名
-AZURE_OPENAI_API_KEY=YOUR-API-KEY                  # 省略時は DefaultAzureCredential
+```
+AZURE_OPENAI_ENDPOINT=https://flownote-prod-oai.openai.azure.com/
+AZURE_OPENAI_DEPLOYMENT_NAME=gpt-5-1-codex-mini
 AZURE_OPENAI_API_VERSION=2025-01-01-preview
+# AZURE_OPENAI_API_KEY は不要（Managed Identity 認証）
 ```
 
-### OpenAI
+### OpenAI（ローカル開発用）
 
-```bash
+```
 OPENAI_API_KEY=YOUR-API-KEY
 OPENAI_MODEL=gpt-4o-mini
 ```
+
+### エージェントログビューア
+
+チャットパネル右上の **「ログ」タブ**から、エージェントへの全リクエスト/レスポンスを確認できます。
+各エントリはクリックで展開し、**リクエスト / レスポンス** タブを切り替えて JSON を表示します。  
+クリップボードコピーボタンで JSON を即コピー可能です。
 
 ---
 
@@ -473,11 +700,11 @@ OPENAI_MODEL=gpt-4o-mini
 2. `infra-deploy.yml` が先に実行されているか確認（インフラが存在しないと SWA へのデプロイは失敗します）
 3. Azure サービスプリンシパルの有効期限・権限を確認
 
-### バックエンドの AI エージェントが動かない
+### AI エージェントが 500 エラーを返す
 
-- `VITE_USE_MOCK_AGENT=false` と設定されているか確認
-- Azure OpenAI のデプロイ名・エンドポイントが正しいか確認
-- API キーまたは DefaultAzureCredential の設定を確認
+- `debug/otel` エンドポイントで OTEL shim の動作を確認
+- `AZURE_OPENAI_ENDPOINT` が Function App のアプリ設定に正しく設定されているか確認
+- Azure Portal で `Cognitive Services OpenAI User` ロール割り当てを確認
 
 ---
 
@@ -509,5 +736,5 @@ MIT © [geekfujiwara](https://github.com/geekfujiwara)
 ---
 
 <p align="center">
-  <sub>Built with ❤️ using React 19 + Azure</sub>
+  <sub>Built with ❤️ using React 19 + Azure OpenAI + Microsoft Agent Framework</sub>
 </p>
