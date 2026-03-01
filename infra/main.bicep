@@ -24,7 +24,7 @@ param repositoryUrl string = 'https://github.com/geekfujiwara/FlowNote'
 param azureOpenAiDeploymentName string = 'gpt-4o-mini'
 
 @description('Azure OpenAI API version')
-param azureOpenAiApiVersion string = '2024-12-01-preview'
+param azureOpenAiApiVersion string = '2025-03-01-preview'
 
 @description('Azure OpenAI model name')
 param azureOpenAiModelName string = 'gpt-4o-mini'
