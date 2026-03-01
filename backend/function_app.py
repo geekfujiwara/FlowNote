@@ -102,6 +102,44 @@ for _otel_path in (
 ):
     _inject_span_attributes(_otel_path)
 
+# ── Import hook: intercept future imports of semconv modules ─
+# Ensures that `from opentelemetry.semconv.ai import SpanAttributes`
+# always returns our permissive class even for not-yet-imported modules.
+import importlib.machinery as _mach
+
+class _SemconvHook:
+    _TARGETS = frozenset({
+        'opentelemetry.semconv.ai',
+        'opentelemetry.semconv.trace',
+    })
+
+    def find_spec(self, fullname, path, target=None):  # noqa: ARG002
+        if fullname not in self._TARGETS or fullname in _sys.modules:
+            return None
+        class _Loader:
+            def create_module(self, spec):
+                mod = _types.ModuleType(spec.name)
+                mod.SpanAttributes = _PermissiveSpanAttributes  # type: ignore[attr-defined]
+                return mod
+            def exec_module(self, module): pass
+        return _mach.ModuleSpec(fullname, _Loader())
+
+_sys.meta_path.insert(0, _SemconvHook())
+
+# ── Exhaustive walk: patch any module that cached a stale SpanAttributes ─
+# Handles the case where instrumentation code already executed
+# `from opentelemetry.semconv.ai import SpanAttributes` and bound the
+# OLD class into its own module namespace before our shim ran.
+for _m in list(_sys.modules.values()):
+    if _m is None:
+        continue
+    try:
+        _existing_sa = vars(_m).get('SpanAttributes')
+        if _existing_sa is not None and not isinstance(type(_existing_sa), _PermissiveMeta):
+            _m.SpanAttributes = _PermissiveSpanAttributes
+    except Exception:
+        pass
+
 
 from agents.flow_agent import run_flow_agent
 

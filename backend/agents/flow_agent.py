@@ -154,45 +154,97 @@ SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 
 
 # ─────────────────────────────────────────────────────────────
+# OTEL shim – module level (runs when flow_agent is imported)
+# This mirrors the shim in function_app.py and guards against the case where
+# agent_framework's instrumentation code is imported later in _create_agent().
+# We also walk all already-loaded modules to patch stale SpanAttributes
+# bindings created by `from opentelemetry.semconv.ai import SpanAttributes`.
+# ─────────────────────────────────────────────────────────────
+import sys as _sys_fa
+import types as _types_fa
+import importlib.machinery as _mach_fa
+
+class _PermMetaFA(type):
+    def __getattr__(cls, name: str) -> str:
+        return name.lower().replace('_', '.')
+
+_PSA_FA = _PermMetaFA('SpanAttributes', (), {
+    'LLM_REQUEST_MODEL':            'llm.request.model',
+    'LLM_RESPONSE_MODEL':           'llm.response.model',
+    'LLM_VENDOR':                   'llm.vendor',
+    'LLM_REQUEST_TYPE':             'llm.request.type',
+    'LLM_REQUEST_MAX_TOKENS':       'llm.request.max_tokens',
+    'LLM_TEMPERATURE':              'llm.temperature',
+    'LLM_TOP_P':                    'llm.top_p',
+    'LLM_USAGE_PROMPT_TOKENS':      'llm.usage.prompt_tokens',
+    'LLM_USAGE_COMPLETION_TOKENS':  'llm.usage.completion_tokens',
+    'LLM_USAGE_TOTAL_TOKENS':       'llm.usage.total_tokens',
+    'LLM_STREAM':                   'llm.is_streaming',
+})
+
+def _patch_semconv_fa(mod_path: str) -> None:
+    try:
+        import importlib as _il
+        _mod = _il.import_module(mod_path)
+        _mod.SpanAttributes = _PSA_FA
+    except ImportError:
+        _fm = _types_fa.ModuleType(mod_path)
+        _fm.SpanAttributes = _PSA_FA  # type: ignore
+        _sys_fa.modules[mod_path] = _fm
+        _parts = mod_path.rsplit('.', 1)
+        if len(_parts) == 2 and _parts[0] in _sys_fa.modules:
+            setattr(_sys_fa.modules[_parts[0]], _parts[1], _fm)
+    except Exception:
+        pass
+
+for _mp_fa in ('opentelemetry.semconv.ai', 'opentelemetry.semconv.trace', 'opentelemetry.semconv'):
+    _patch_semconv_fa(_mp_fa)
+
+# Import hook: for modules not yet loaded
+class _SemconvHookFA:
+    _TARGETS = frozenset({'opentelemetry.semconv.ai', 'opentelemetry.semconv.trace'})
+    def find_spec(self, fullname, path, target=None):  # noqa: ARG002
+        if fullname not in self._TARGETS or fullname in _sys_fa.modules:
+            return None
+        class _L:
+            def create_module(self, spec):
+                mod = _types_fa.ModuleType(spec.name)
+                mod.SpanAttributes = _PSA_FA  # type: ignore
+                return mod
+            def exec_module(self, module): pass
+        return _mach_fa.ModuleSpec(fullname, _L())
+
+_sys_fa.meta_path.insert(0, _SemconvHookFA())
+
+# Exhaustive walk: fix stale bindings in already-imported modules
+for _m_fa in list(_sys_fa.modules.values()):
+    if _m_fa is None:
+        continue
+    try:
+        _sa_fa = vars(_m_fa).get('SpanAttributes')
+        if _sa_fa is not None and not isinstance(type(_sa_fa), _PermMetaFA):
+            _m_fa.SpanAttributes = _PSA_FA
+    except Exception:
+        pass
+
+
+# ─────────────────────────────────────────────────────────────
 # Agent factory
 # ─────────────────────────────────────────────────────────────
 
 def _create_agent(tools: list | None = None, instructions: str | None = None) -> Any:  # type: Agent
     """Build and return an Agent Framework Agent from environment variables."""
-    # ── OTEL shim (permissive metaclass) – run before any agent_framework import ──
-    import sys as _s, types as _t
-    _llm_map = {
-        'LLM_REQUEST_MODEL': 'llm.request.model',
-        'LLM_RESPONSE_MODEL': 'llm.response.model',
-        'LLM_VENDOR': 'llm.vendor',
-        'LLM_REQUEST_TYPE': 'llm.request.type',
-        'LLM_REQUEST_MAX_TOKENS': 'llm.request.max_tokens',
-        'LLM_TEMPERATURE': 'llm.temperature',
-        'LLM_TOP_P': 'llm.top_p',
-        'LLM_USAGE_PROMPT_TOKENS': 'llm.usage.prompt_tokens',
-        'LLM_USAGE_COMPLETION_TOKENS': 'llm.usage.completion_tokens',
-        'LLM_USAGE_TOTAL_TOKENS': 'llm.usage.total_tokens',
-        'LLM_STREAM': 'llm.is_streaming',
-    }
-    class _PMeta(type):
-        def __getattr__(cls, name: str) -> str:
-            return name.lower().replace('_', '.')
-    _PSA = _PMeta('SpanAttributes', (), dict(_llm_map))
-    for _mp in ('opentelemetry.semconv.ai', 'opentelemetry.semconv.trace', 'opentelemetry.semconv'):
+    # Re-run exhaustive walk here too, in case agent_framework was imported
+    # between module load and first call (e.g. eager worker initialization).
+    for _m in list(_sys_fa.modules.values()):
+        if _m is None:
+            continue
         try:
-            import importlib as _il
-            _mod = _il.import_module(_mp)
-            _mod.SpanAttributes = _PSA
-        except ImportError:
-            _fm = _t.ModuleType(_mp)
-            _fm.SpanAttributes = _PSA  # type: ignore
-            _s.modules[_mp] = _fm
-            _parts = _mp.rsplit('.', 1)
-            if len(_parts) == 2 and _parts[0] in _s.modules:
-                setattr(_s.modules[_parts[0]], _parts[1], _fm)
+            _sa = vars(_m).get('SpanAttributes')
+            if _sa is not None and not isinstance(type(_sa), _PermMetaFA):
+                _m.SpanAttributes = _PSA_FA
         except Exception:
             pass
-    # ── end OTEL shim ────────────────────────────────────────────────────────────
     azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
