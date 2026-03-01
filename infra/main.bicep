@@ -24,7 +24,7 @@ param repositoryUrl string = 'https://github.com/geekfujiwara/FlowNote'
 param azureOpenAiEndpoint string = ''
 
 @description('Azure OpenAI deployment name')
-param azureOpenAiDeploymentName string = 'gpt-4o-mini'
+param azureOpenAiDeploymentName string = 'gpt-5-1-codex-mini'
 
 @description('Azure OpenAI API key (leave empty to use managed identity)')
 @secure()
