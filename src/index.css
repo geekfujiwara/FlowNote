@@ -50,6 +50,48 @@ body,
   stroke-width: 2 !important;
 }
 
+/* ─────────────────────────────────────────────
+   Connection line (while dragging from a handle)
+───────────────────────────────────────────── */
+
+/* Marching ants: dashes flow toward the cursor */
+@keyframes connectionDash {
+  from { stroke-dashoffset: 20; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* Glow pulse */
+@keyframes connectionGlow {
+  0%   { stroke-opacity: 0.15; stroke-width: 6; }
+  50%  { stroke-opacity: 0.35; stroke-width: 10; }
+  100% { stroke-opacity: 0.15; stroke-width: 6; }
+}
+
+/* Dot pulse at cursor */
+@keyframes connectionDot {
+  0%   { r: 4; opacity: 0.7; }
+  50%  { r: 6; opacity: 1; }
+  100% { r: 4; opacity: 0.7; }
+}
+
+.connection-line-dash {
+  animation: connectionDash 0.3s linear infinite;
+}
+
+.connection-line-glow {
+  animation: connectionGlow 0.8s ease-in-out infinite;
+}
+
+.connection-line-dot {
+  animation: connectionDot 0.6s ease-in-out infinite;
+}
+
+/* Make the RF connection line SVG overlay visible above nodes */
+.react-flow__connection {
+  z-index: 1000;
+  pointer-events: none;
+}
+
 .react-flow__edge.selected .react-flow__edge-path {
   stroke: #a5b4fc !important;
   stroke-width: 2.5 !important;

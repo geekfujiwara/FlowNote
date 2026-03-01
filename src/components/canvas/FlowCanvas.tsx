@@ -8,11 +8,14 @@ import {
   useNodesState,
   useEdgesState,
   addEdge,
+  getBezierPath,
   type Connection,
   type Node,
   type Edge,
   type NodeTypes,
+  type ConnectionLineComponentProps,
   BackgroundVariant,
+  Position,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useStore } from '@/store/useStore'
@@ -24,6 +27,60 @@ import { v4 as uuidv4 } from 'uuid'
 
 const nodeTypes: NodeTypes = {
   flowNode: CustomNode,
+}
+
+// ── Animated connection line drawn while dragging from a handle ──────────────
+function AnimatedConnectionLine({
+  fromX,
+  fromY,
+  fromPosition,
+  toX,
+  toY,
+  toPosition,
+}: ConnectionLineComponentProps) {
+  const [edgePath] = getBezierPath({
+    sourceX: fromX,
+    sourceY: fromY,
+    sourcePosition: fromPosition ?? Position.Bottom,
+    targetX: toX,
+    targetY: toY,
+    targetPosition: toPosition ?? Position.Top,
+  })
+
+  return (
+    <g>
+      {/* Glow layer */}
+      <path
+        fill="none"
+        stroke="#818cf8"
+        strokeWidth={8}
+        strokeOpacity={0.25}
+        strokeLinecap="round"
+        d={edgePath}
+        className="connection-line-glow"
+      />
+      {/* Main animated dash */}
+      <path
+        fill="none"
+        stroke="#a5b4fc"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeDasharray="6 4"
+        d={edgePath}
+        className="connection-line-dash"
+      />
+      {/* Trailing dot at cursor */}
+      <circle
+        cx={toX}
+        cy={toY}
+        r={5}
+        fill="#818cf8"
+        stroke="#c7d2fe"
+        strokeWidth={2}
+        className="connection-line-dot"
+      />
+    </g>
+  )
 }
 
 export function FlowCanvas() {
@@ -199,6 +256,7 @@ function FlowCanvasInner() {
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
+        connectionLineComponent={AnimatedConnectionLine}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         nodesDraggable={canvasMode === 'select' || canvasMode === 'edit'}
