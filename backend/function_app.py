@@ -263,4 +263,16 @@ async def agent_chat(req: func.HttpRequest) -> func.HttpResponse:
         return _error(str(exc), 500)
     except Exception as exc:
         logger.exception("Unexpected error in agent_chat")
+        err_str = str(exc)
+        # Provide actionable guidance for common Azure OpenAI errors
+        if "404" in err_str and "Resource not found" in err_str:
+            endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "(not set)")
+            deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "(not set)")
+            api_ver = os.environ.get("AZURE_OPENAI_API_VERSION", "(not set)")
+            logger.error(
+                "Azure OpenAI 404: endpoint=%s deployment=%s api_version=%s – "
+                "verify that the deployment name matches an existing model deployment "
+                "in the Azure OpenAI resource and that GitHub Secrets match Bicep outputs.",
+                endpoint, deployment, api_ver,
+            )
         return _error(f"Agent error: {exc}", 500)

@@ -158,15 +158,27 @@ SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 
 def _get_client() -> tuple[Any, str]:
     """Build and return an async OpenAI client and model/deployment name."""
-    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip()
+    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "").strip().rstrip("/")
     openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
 
     if azure_endpoint:
         from openai import AsyncAzureOpenAI  # type: ignore
 
-        deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o-mini")
+        deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "").strip()
+        if not deployment:
+            raise RuntimeError(
+                "AZURE_OPENAI_DEPLOYMENT_NAME is not set. "
+                "Set it to the name of your Azure OpenAI model deployment "
+                "(e.g. the value shown in Azure Portal > Azure OpenAI > Model deployments)."
+            )
         api_key = os.environ.get("AZURE_OPENAI_API_KEY", "").strip()
-        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2025-04-01-preview")
+        api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2025-04-01-preview").strip()
+
+        logger.info(
+            "Azure OpenAI config: endpoint=%s deployment=%s api_version=%s auth=%s",
+            azure_endpoint, deployment, api_version,
+            "api_key" if api_key else "managed_identity",
+        )
 
         if api_key:
             client = AsyncAzureOpenAI(
