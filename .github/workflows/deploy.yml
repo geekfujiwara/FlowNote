@@ -7,6 +7,7 @@
 #   AZURE_STATIC_WEB_APPS_API_TOKEN   – Optional when AZURE_CREDENTIALS is set; token is then
 #                                       fetched fresh from Azure on each deploy run.
 #   VITE_API_BASE_URL                 – Functions URL
+#   VITE_PASSWORD_HASH                – SHA-256 hash of the demo login password
 #
 # If secrets are not yet configured (infra not provisioned), the deploy
 # steps are skipped gracefully – the build step always runs as a CI check.
@@ -86,6 +87,7 @@ jobs:
           VITE_USE_MOCK_AGENT: 'false'
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_AGENT_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          VITE_PASSWORD_HASH: ${{ secrets.VITE_PASSWORD_HASH }}
           VITE_APPINSIGHTS_CONNECTION_STRING: ${{ secrets.VITE_APPINSIGHTS_CONNECTION_STRING }}
           # Optional: set these secrets to enable Microsoft Entra ID authentication.
           # When omitted, the app uses password-based access control (single shared
