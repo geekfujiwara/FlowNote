@@ -30,6 +30,9 @@ env:
   SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   FUNCTION_APP_NAME: flownote-prod-func
   SWA_NAME: flownote-prod-swa
+  # Storage account name mirrors Bicep: take(replace('${prefix}${environment}st','-',''),24)
+  # prefix=flownote, environment=prod → flownoteprodst
+  STORAGE_ACCOUNT_NAME: flownoteprodst
   NODE_VERSION: '20'
   PYTHON_VERSION: '3.11'
 
@@ -264,6 +267,21 @@ jobs:
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Ensure storage public network access is Enabled for deployment
+        run: |
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
+          az storage account update \
+            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --public-network-access Enabled \
+            --bypass AzureServices Logging Metrics \
+            --output none
+          echo "✅ Storage public network access: Enabled"
 
       - name: Deploy to Azure Functions
         # azure/functions-action@v1 is the officially supported action for FC1 (Flex Consumption).

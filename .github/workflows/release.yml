@@ -29,12 +29,15 @@ on:
   workflow_dispatch:
 
 env:
-  RESOURCE_GROUP:     rg-flownote
-  SUBSCRIPTION_ID:    ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  FUNCTION_APP_NAME:  flownote-prod-func
-  SWA_NAME:           flownote-prod-swa
-  NODE_VERSION:       '20'
-  PYTHON_VERSION:     '3.11'
+  RESOURCE_GROUP:        rg-flownote
+  SUBSCRIPTION_ID:       ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  FUNCTION_APP_NAME:     flownote-prod-func
+  SWA_NAME:              flownote-prod-swa
+  # Storage account name mirrors Bicep: take(replace('${prefix}${environment}st','-',''),24)
+  # prefix=flownote, environment=prod → flownoteprodst
+  STORAGE_ACCOUNT_NAME:  flownoteprodst
+  NODE_VERSION:          '20'
+  PYTHON_VERSION:        '3.11'
 
 # Cancel in-progress runs triggered by the same branch
 concurrency:
@@ -302,14 +305,42 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Ensure storage public network access is Enabled for deployment
+        # FC1 Flex Consumption deployment: Kudu uploads the zip to the deployments blob container
+        # using the Function App's managed identity. Even with bypass=AzureServices the upload
+        # requires publicNetworkAccess=Enabled when no VNet service endpoint is configured.
+        # This step ensures it is on before deploy and the nightly schedule can safely disable it.
+        run: |
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
+          az storage account update \
+            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --public-network-access Enabled \
+            --bypass AzureServices Logging Metrics \
+            --output none
+          echo "✅ Storage public network access: Enabled (bypass: AzureServices,Logging,Metrics)"
+
       - name: Deploy to Azure Functions
-        # azure/functions-action@v1 is the officially supported action for FC1 (Flex Consumption).
-        # It uses ARM-based deployment (not Kudu) and works with Azure Login RBAC credentials.
-        uses: Azure/functions-action@v1
-        with:
-          app-name: ${{ env.FUNCTION_APP_NAME }}
-          package: func-package.zip
-          # No publish-profile needed – Azure Login (above) provides RBAC credentials.
+        # az functionapp deploy uses the ARM management-plane API to upload the package
+        # directly to the deployments blob container via ARM, which avoids the Kudu-side
+        # StorageAccessibleCheck that fails with 403 when the service principal lacks
+        # direct blob storage access.
+        run: |
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
+          az functionapp deploy \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --src-path func-package.zip \
+            --type zip \
+            --async true \
+            "${SUBSCRIPTION_ARGS[@]}"
 
       - name: Configure Azure OpenAI app settings
         env:

@@ -74,9 +74,22 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   kind: 'StorageV2'
   properties: {
     minimumTlsVersion: 'TLS1_2'
-    allowBlobPublicAccess: false
+    allowBlobPublicAccess: false        // no anonymous container/blob access
     supportsHttpsTrafficOnly: true
     accessTier: 'Hot'
+    // Flex Consumption deployment requires Azure infrastructure (Kudu) to upload
+    // packages to the deployments blob container. This uses the Function App's
+    // system-assigned managed identity (SystemAssignedIdentity authentication),
+    // but the upload path goes through Azure-internal endpoints that require either
+    // publicNetworkAccess = Enabled  OR  bypass = AzureServices.
+    // We set both: public access is on by default and can be toggled off at night
+    // (via the storage-network-schedule workflow) because the AzureServices bypass
+    // keeps Kudu and Function App runtime access intact even when public is off.
+    publicNetworkAccess: 'Enabled'
+    networkAcls: {
+      bypass: 'AzureServices,Logging,Metrics'
+      defaultAction: 'Allow'
+    }
   }
 }
 
