@@ -10,7 +10,7 @@ Required env vars (set ONE of the two providers):
     AZURE_OPENAI_ENDPOINT         e.g. https://my-resource.openai.azure.com
     AZURE_OPENAI_DEPLOYMENT_NAME  default: gpt-4o-mini
     AZURE_OPENAI_API_KEY          optional; omit to use DefaultAzureCredential
-    AZURE_OPENAI_API_VERSION      default: preview
+    AZURE_OPENAI_API_VERSION      default: 2024-05-01-preview
 
   OpenAI:
     OPENAI_API_KEY
@@ -259,7 +259,7 @@ def _create_agent(tools: list | None = None, instructions: str | None = None) ->
                 endpoint=azure_endpoint,
                 deployment_name=deployment,
                 api_key=api_key,
-                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "preview"),
+                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-05-01-preview"),
             )
         else:
             # Passwordless: Managed Identity / az login
@@ -269,7 +269,7 @@ def _create_agent(tools: list | None = None, instructions: str | None = None) ->
                 endpoint=azure_endpoint,
                 deployment_name=deployment,
                 credential=DefaultAzureCredential(),
-                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "preview"),
+                api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-05-01-preview"),
             )
 
     elif openai_key:
