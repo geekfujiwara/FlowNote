@@ -390,7 +390,22 @@ npm run dev
 ブラウザで `http://localhost:5173` を開きます。  
 デフォルトでモック API が有効なのでバックエンドなしで全機能を試せます。
 
-**デモ用ログインパスワード:** `geekfujiwara@123`
+**デモ用ログインパスワードの設定:**  
+`.env.local` に `VITE_PASSWORD_HASH` を設定します（SHA-256 ハッシュ値）。
+
+```bash
+# Linux / Mac
+echo -n 'YOUR_PASSWORD' | sha256sum
+
+# PowerShell
+[System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.Text.Encoding]::UTF8.GetBytes('YOUR_PASSWORD'))).Replace('-','').ToLower()
+```
+
+生成したハッシュ値を `.env.local` に設定します:
+
+```
+VITE_PASSWORD_HASH=<上記コマンドで生成したハッシュ値>
+```
 
 ### バックエンドのローカル起動（オプション）
 
@@ -518,15 +533,6 @@ FlowNote 独自の Markdown 拡張記法です。コードブロックの言語�
 
 ## Azure デプロイ
 
-### デプロイ済み環境
-
-| リソース | URL / 値 |
-|---|---|
-| フロントエンド (SWA) | `https://red-bay-0ae91090f.2.azurestaticapps.net` |
-| バックエンド (Functions) | `https://flownote-prod-func.azurewebsites.net` |
-| Azure OpenAI | `https://flownote-prod-oai.openai.azure.com/` |
-| リージョン | japaneast |
-
 ### 構築される Azure リソース
 
 | リソース | SKU / プラン | 用途 |
@@ -597,7 +603,7 @@ git push origin main
 `Cognitive Services OpenAI User` ロールを持ち、自動的にトークンを取得します。
 
 ```
-AZURE_OPENAI_ENDPOINT=https://flownote-prod-oai.openai.azure.com/
+AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.openai.azure.com/
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-5-1-codex-mini
 AZURE_OPENAI_API_VERSION=2025-01-01-preview
 # AZURE_OPENAI_API_KEY は不要（Managed Identity 認証）

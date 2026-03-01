@@ -11,7 +11,7 @@ export default defineConfig({
     ['html', { outputFolder: 'e2e-results/html', open: 'never' }],
   ],
   use: {
-    baseURL: 'https://red-bay-0ae91090f.2.azurestaticapps.net',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
     screenshot: 'on',
     video: 'off',
     trace: 'off',
