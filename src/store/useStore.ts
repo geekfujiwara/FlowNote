@@ -338,10 +338,11 @@ export const useStore = create<FlowNoteState>()(
         trackEvent('agent_message_sent', { message: message.slice(0, 80) })
       } catch (err) {
         const durationMs = Math.round(performance.now() - tStart)
+        const detail = err instanceof Error ? err.message : String(err)
         const errMsg: ChatMessage = {
           id: uuidv4(),
           role: 'agent',
-          content: 'エラーが発生しました。もう一度お試しください。',
+          content: `エラーが発生しました: ${detail}`,
           timestamp: new Date().toISOString(),
         }
         const log: AgentLog = {
@@ -350,7 +351,7 @@ export const useStore = create<FlowNoteState>()(
           message,
           requestPayload: requestPayload as Record<string, unknown>,
           responsePayload: null,
-          errorMessage: err instanceof Error ? err.message : String(err),
+          errorMessage: detail,
           durationMs,
         }
         set((s) => ({
