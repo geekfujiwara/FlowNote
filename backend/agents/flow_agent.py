@@ -1,7 +1,7 @@
 """
 FlowNote AI – OpenAI-powered Python backend.
 
-Uses the openai Responses API to interpret user requests and produce
+Uses the openai Chat Completions API to interpret user requests and produce
 structured Suggestion objects for the FlowNote frontend.
 
 Required env vars (set ONE of the two providers):
@@ -211,72 +211,82 @@ def _get_client() -> tuple[Any, str]:
 _TOOLS_SCHEMA: list[dict] = [
     {
         "type": "function",
-        "name": "add_node",
-        "description": "Add a new node to the flow diagram.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "node_id": {"type": "string", "description": "Unique identifier (lowercase, no spaces)."},
-                "label":   {"type": "string", "description": "Display label shown inside the node."},
-                "node_type": {
-                    "type": "string",
-                    "enum": ["default", "input", "output", "selector"],
-                    "description": "One of 'default', 'input', 'output', 'selector'.",
+        "function": {
+            "name": "add_node",
+            "description": "Add a new node to the flow diagram.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_id": {"type": "string", "description": "Unique identifier (lowercase, no spaces)."},
+                    "label":   {"type": "string", "description": "Display label shown inside the node."},
+                    "node_type": {
+                        "type": "string",
+                        "enum": ["default", "input", "output", "selector"],
+                        "description": "One of 'default', 'input', 'output', 'selector'.",
+                    },
                 },
+                "required": ["node_id", "label"],
             },
-            "required": ["node_id", "label"],
         },
     },
     {
         "type": "function",
-        "name": "remove_node",
-        "description": "Remove a node and all edges connected to it.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "node_id": {"type": "string", "description": "ID of the node to remove."},
+        "function": {
+            "name": "remove_node",
+            "description": "Remove a node and all edges connected to it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "node_id": {"type": "string", "description": "ID of the node to remove."},
+                },
+                "required": ["node_id"],
             },
-            "required": ["node_id"],
         },
     },
     {
         "type": "function",
-        "name": "add_edge",
-        "description": "Add a directed edge between two nodes.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "source": {"type": "string", "description": "Source node ID."},
-                "target": {"type": "string", "description": "Target node ID."},
-                "label":  {"type": "string", "description": "Optional label on the edge."},
+        "function": {
+            "name": "add_edge",
+            "description": "Add a directed edge between two nodes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source node ID."},
+                    "target": {"type": "string", "description": "Target node ID."},
+                    "label":  {"type": "string", "description": "Optional label on the edge."},
+                },
+                "required": ["source", "target"],
             },
-            "required": ["source", "target"],
         },
     },
     {
         "type": "function",
-        "name": "remove_edge",
-        "description": "Remove an edge between two nodes.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "source": {"type": "string", "description": "Source node ID."},
-                "target": {"type": "string", "description": "Target node ID."},
+        "function": {
+            "name": "remove_edge",
+            "description": "Remove an edge between two nodes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "Source node ID."},
+                    "target": {"type": "string", "description": "Target node ID."},
+                },
+                "required": ["source", "target"],
             },
-            "required": ["source", "target"],
         },
     },
     {
         "type": "function",
-        "name": "replace_flow",
-        "description": "Completely replace the flow with a new set of nodes and edges.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "nodes_json": {"type": "string", "description": "JSON array of node objects with id, label, type."},
-                "edges_json": {"type": "string", "description": "JSON array of edge objects with source, target, and optional label."},
+        "function": {
+            "name": "replace_flow",
+            "description": "Completely replace the flow with a new set of nodes and edges.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nodes_json": {"type": "string", "description": "JSON array of node objects with id, label, type."},
+                    "edges_json": {"type": "string", "description": "JSON array of edge objects with source, target, and optional label."},
+                },
+                "required": ["nodes_json", "edges_json"],
             },
-            "required": ["nodes_json", "edges_json"],
         },
     },
 ]
@@ -550,48 +560,55 @@ async def run_flow_agent(
 
     client, model = _get_client()
 
-    input_items: list = [{"role": "user", "content": user_prompt}]
+    messages: list = [
+        {"role": "system", "content": combined_instructions},
+        {"role": "user", "content": user_prompt},
+    ]
 
     raw = ""
     MAX_ITERATIONS = 10
 
-    response = await client.responses.create(
-        model=model,
-        instructions=combined_instructions,
-        input=input_items,
-        tools=_TOOLS_SCHEMA,
-        tool_choice="auto",
-    )
-
     for _ in range(MAX_ITERATIONS):
-        tool_calls = [item for item in response.output if item.type == "function_call"]
-
-        if not tool_calls:
-            # Extract text from message output items
-            for item in response.output:
-                if item.type == "message":
-                    for part in item.content:
-                        if hasattr(part, "text"):
-                            raw += part.text
-            break
-
-        tool_outputs: list = []
-        for tc in tool_calls:
-            args = json.loads(tc.arguments)
-            result = _call_tool(plugin, tc.name, args, trace_log)
-            tool_outputs.append({
-                "type": "function_call_output",
-                "call_id": tc.call_id,
-                "output": result,
-            })
-
-        response = await client.responses.create(
+        response = await client.chat.completions.create(
             model=model,
-            previous_response_id=response.id,
-            input=tool_outputs,
+            messages=messages,
             tools=_TOOLS_SCHEMA,
             tool_choice="auto",
         )
+
+        choice = response.choices[0]
+        msg = choice.message
+
+        if not msg.tool_calls:
+            raw = msg.content or ""
+            break
+
+        # Append assistant turn (with tool calls) to conversation
+        messages.append({
+            "role": "assistant",
+            "content": msg.content,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in msg.tool_calls
+            ],
+        })
+
+        # Execute each tool and append results
+        for tc in msg.tool_calls:
+            args = json.loads(tc.function.arguments)
+            result = _call_tool(plugin, tc.function.name, args, trace_log)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result,
+            })
 
     logger.debug("Agent raw response: %s", raw[:500])
 
