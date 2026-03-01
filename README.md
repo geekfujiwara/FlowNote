@@ -31,9 +31,9 @@
 
 ## 概要
 
-FlowNote は、**マークダウン記法でフローチャートを記述**し、リアルタイムでキャンバスに可視化できる Web アプリです。  
-Azure OpenAI (gpt-5.1-codex-mini) と Microsoft Agent Framework を組み合わせた AI エージェントが、自然言語の指示でノードやエッジを自動生成・編集します。  
-エージェントへのすべてのリクエスト・レスポンスは **ログビューア** でリアルタイムに確認できます。
+FlowNote は、**マークダウン記法でフローチャートを記述**し、リアルタイムでキャンバスに可視化できる Web アプリです。アイデアをテキストとして書き起こすだけで、美しいフロー図が自動的に生成されます。設計書の作成やプロセス整理に使えるフローチャートを、コードを書く感覚でサクサクと作れるのが FlowNote の最大の特徴です。
+
+さらに、Azure OpenAI (gpt-5.1-codex-mini) と Microsoft Agent Framework を組み合わせた AI エージェントをチャットパネルから利用できます。「承認ステップを追加して」「条件分岐を整理して」といった自然言語の指示を入力するだけで、AI がノードやエッジの変更案を差分プレビューとして提案します。内容を確認してから適用・破棄を選べるため、意図しない変更が加わる心配がありません。エージェントへのすべてのリクエスト・レスポンスは **ログビューア** でリアルタイムに確認でき、AI が何をどう判断したかを透明に把握できます。
 
 ````
 # サンプルフロー
@@ -254,41 +254,28 @@ graph TB
 ```
 
 ---
-</p>
-
-
-
-```
-# サンプルフロー
-
-```flow
-[[start]] 開始
-[process] 処理
-{branch} 条件分岐
-((end)) 終了
-
-[start] -> [process]
-[process] -> {branch}
-{branch} -> ((end)) : Yes
-```
-```
-
----
 
 ## 主な機能
 
-| 機能 | 説明 |
-|---|---|
-| 📝 **マークダウンエディタ** | CodeMirror ベース。独自 `flow` コードブロック記法でノード・エッジを定義 |
-| 🎨 **フローキャンバス** | @xyflow/react によるインタラクティブキャンバス。Dagre 自動レイアウト対応 |
-| 🤖 **AI エージェント** | チャットパネルで自然言語指示。差分プレビューから適用/破棄が可能 |
-| 🪵 **エージェントログビューア** | 送受信 JSON をリクエスト/レスポンスタブで確認・クリップボードコピー可能 |
-| 📤 **SVG エクスポート** | フロー全体を SVG ファイルとしてダウンロード |
-| 🗂️ **10種類のテンプレート** | フィッシュボーン・SWOT・マインドマップ等。AI 専用プロンプト付き |
-| 🔄 **バージョン履歴** | フロー変更を自動記録。任意時点に1クリックで復元 |
-| 📊 **アナリティクス** | ノート数・AI 使用回数などの利用状況ダッシュボード |
-| 🔍 **Application Insights** | テレメトリ収集・パフォーマンス監視 |
-| 🔐 **認証** | デモ用パスワードログイン / Microsoft Entra ID (MSAL) 対応 |
+FlowNote は、フローチャート作成に必要なすべての機能をひとつのブラウザアプリに集約しています。
+
+📝 **マークダウンエディタ**では、CodeMirror ベースのエディタで独自の `flow` 記法を使ってノードやエッジを定義します。入力するそばからキャンバスにリアルタイム反映されるため、「書く」と「見る」を同時に体験できます。
+
+🎨 **フローキャンバス**は @xyflow/react によるインタラクティブなビューで、ノードのドラッグ移動やズーム操作に対応しています。Dagre による自動レイアウトを使えば、複雑なフローも一発で整列できます。
+
+🤖 **AI エージェント**はチャットパネルから呼び出せます。「〇〇のステップを追加して」のように自然言語で指示すると、AI が差分プレビューを提案します。プレビューを確認してから「適用」または「破棄」を選べるので、意図しない変更を防げます。
+
+🪵 **エージェントログビューア**では、AI エージェントへのすべてのリクエスト・レスポンス JSON をリアルタイムで確認できます。リクエスト/レスポンスのタブを切り替えて内容を精査し、クリップボードにコピーすることも可能です。
+
+📤 **SVG エクスポート**では、キャンバス上のフロー全体をベクター形式でダウンロードできます。そのままドキュメントや資料に貼り付けられます。
+
+🗂️ **10種類のテンプレート**を内蔵しており、フィッシュボーン・SWOT・マインドマップ・組織図などをすぐに利用開始できます。各テンプレートには AI 専用のシステムプロンプトと推奨プロンプト候補が付属しているため、AI との連携もスムーズです。
+
+🔄 **バージョン履歴**は、フローへの変更を自動的に記録します。過去の任意の状態に1クリックで復元できるため、試行錯誤を気軽に行えます。
+
+📊 **アナリティクスダッシュボード**では、作成したノート数や AI の使用回数などの利用状況を一覧できます。チームや個人の活用状況を把握するのに役立ちます。
+
+🔐 **認証**はデモ用パスワードログインと Microsoft Entra ID (MSAL) の両方に対応しています。手軽に試したい場合はパスワード認証、組織内展開では Entra ID 認証をそのまま利用できます。
 
 ---
 
@@ -369,63 +356,6 @@ graph TB
 | Azure Blob Storage | Standard LRS | ノートデータ永続化 |
 | Application Insights | — | テレメトリ・監視 |
 | Log Analytics Workspace | PerGB2018 | ログ集約（30日） |
-
----
-
-## ディレクトリ構成
-
-```mermaid
-graph TD
-    Root["FlowNote/"]
-
-    Root --> SRC["src/"]
-    Root --> BE["backend/"]
-    Root --> INFRA["infra/"]
-    Root --> GH[".github/workflows/"]
-    Root --> E2E["e2e/"]
-    Root --> CFG["設定ファイル群\n.env.example\nstaticwebapp.config.json\nvite.config.ts\ntsconfig.json"]
-
-    SRC --> AUTH["auth/\n認証 MSAL + パスワード"]
-    SRC --> COMP["components/"]
-    SRC --> HOOKS["hooks/\nuseSignalR.ts"]
-    SRC --> LIB["lib/"]
-    SRC --> STORE["store/\nuseStore.ts"]
-    SRC --> TEST["test/\nVitest テスト"]
-    SRC --> TYPES["types/\nindex.ts"]
-
-    COMP --> CA["analytics/\nアナリティクス"]
-    COMP --> CC["canvas/\nフローキャンバス・ノード・バージョン"]
-    COMP --> CH["chat/\nChatPanel / ログビューア / トレース"]
-    COMP --> CE["editor/\nMarkdownエディタ・ツールバー"]
-    COMP --> CL["layout/\nAppLayout"]
-    COMP --> CS["shared/\n共有コンポーネント"]
-    COMP --> CSI["sidebar/\nノート一覧"]
-    COMP --> CT["templates/\nテンプレートギャラリー"]
-
-    LIB --> LI1["appInsights.ts"]
-    LIB --> LI2["dagLayout.ts"]
-    LIB --> LI3["exportSvg.ts"]
-    LIB --> LI4["flowParser.ts"]
-    LIB --> LI5["mockApi.ts"]
-    LIB --> LI6["templates.ts"]
-
-    BE --> BEF["function_app.py\nAzure Functions エントリ"]
-    BE --> BEA["agents/flow_agent.py\nAI エージェント"]
-    BE --> BER["requirements.txt"]
-
-    INFRA --> BI["main.bicep\nAzure IaC"]
-
-    GH --> GH1["release.yml\nCI/CD push to main"]
-    GH --> GH2["deploy.yml\nアプリデプロイ レガシー"]
-    GH --> GH3["infra-deploy.yml\nインフラ手動プロビジョニング"]
-
-    classDef dir fill:#1e293b,color:#94a3b8,stroke:#334155
-    classDef file fill:#0f172a,color:#64748b,stroke:#1e293b
-    class Root,SRC,BE,INFRA,GH,E2E dir
-    class AUTH,COMP,HOOKS,LIB,STORE,TEST,TYPES dir
-    class CA,CC,CH,CE,CL,CS,CSI,CT dir
-    class LI1,LI2,LI3,LI4,LI5,LI6,BEF,BEA,BER,BI,GH1,GH2,GH3,CFG file
-```
 
 ---
 
