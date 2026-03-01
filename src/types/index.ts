@@ -58,6 +58,20 @@ export interface AgentTraceEntry {
   timestamp: string
 }
 
+// ─────────────────────────────────────────────
+// Agent request/response log types
+// ─────────────────────────────────────────────
+
+export interface AgentLog {
+  id: string
+  timestamp: string
+  message: string
+  requestPayload: Record<string, unknown>
+  responsePayload: Record<string, unknown> | null
+  errorMessage?: string
+  durationMs: number
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'agent'

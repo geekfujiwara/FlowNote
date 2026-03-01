@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useStore } from '@/store/useStore'
 import { SuggestionCard } from './SuggestionCard'
 import { AgentTraceViewer } from './AgentTraceViewer'
+import { AgentLogViewer } from './AgentLogViewer'
 import {
   Bot,
   User,
@@ -13,9 +14,12 @@ import {
   LayoutTemplate,
   ChevronDown,
   ChevronUp,
+  ClipboardList,
 } from 'lucide-react'
 import type { ChatMessage } from '@/types'
 import { getTemplateById } from '@/lib/templates'
+
+type PanelTab = 'chat' | 'log'
 
 export function ChatPanel() {
   const chatMessages = useStore((s) => s.chatMessages)
@@ -26,9 +30,11 @@ export function ChatPanel() {
   const clearChatMessages = useStore((s) => s.clearChatMessages)
   const activeTemplateId = useStore((s) => s.activeTemplateId)
   const systemPrompt = useStore((s) => s.systemPrompt)
+  const agentLogs = useStore((s) => s.agentLogs)
 
   const [input, setInput] = useState('')
   const [systemPromptOpen, setSystemPromptOpen] = useState(false)
+  const [tab, setTab] = useState<PanelTab>('chat')
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const activeTemplate = activeTemplateId ? getTemplateById(activeTemplateId) : null
@@ -63,7 +69,7 @@ export function ChatPanel() {
   return (
     <div className="h-full flex flex-col bg-zinc-900 w-80">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800 shrink-0">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800 shrink-0">
         <Sparkles className="w-4 h-4 text-purple-400" />
         <span className="text-sm font-medium text-zinc-200">AI エージェント</span>
         {agentStatus === 'thinking' && (
@@ -72,7 +78,7 @@ export function ChatPanel() {
         {agentStatus === 'error' && (
           <span className="ml-auto text-xs text-red-400">エラー</span>
         )}
-        {chatMessages.length > 0 && agentStatus !== 'thinking' && (
+        {chatMessages.length > 0 && agentStatus !== 'thinking' && tab === 'chat' && (
           <button
             onClick={clearChatMessages}
             title="会話履歴をクリア"
@@ -83,92 +89,130 @@ export function ChatPanel() {
         )}
       </div>
 
-      {/* Active template badge + system prompt */}
-      {activeTemplate && (
-        <div className="border-b border-zinc-800 bg-zinc-900/80 shrink-0">
-          <button
-            onClick={() => setSystemPromptOpen(!systemPromptOpen)}
-            className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-800/50 transition-colors"
-          >
-            <LayoutTemplate className="w-3 h-3 text-indigo-400 shrink-0" />
-            <span className="text-[11px] text-indigo-300 flex-1 text-left truncate">
-              {activeTemplate.emoji} {activeTemplate.name}
+      {/* Tab switcher */}
+      <div className="flex border-b border-zinc-800 shrink-0">
+        <button
+          onClick={() => setTab('chat')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs transition-colors border-b-2 ${
+            tab === 'chat'
+              ? 'text-indigo-300 border-indigo-500'
+              : 'text-zinc-500 hover:text-zinc-300 border-transparent'
+          }`}
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          チャット
+        </button>
+        <button
+          onClick={() => setTab('log')}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-xs transition-colors border-b-2 ${
+            tab === 'log'
+              ? 'text-indigo-300 border-indigo-500'
+              : 'text-zinc-500 hover:text-zinc-300 border-transparent'
+          }`}
+        >
+          <ClipboardList className="w-3.5 h-3.5" />
+          ログ
+          {agentLogs.length > 0 && (
+            <span className="ml-0.5 text-[10px] bg-zinc-700 text-zinc-300 rounded-full px-1.5 py-0.5 leading-none">
+              {agentLogs.length}
             </span>
-            {systemPromptOpen
-              ? <ChevronUp className="w-3 h-3 text-zinc-500" />
-              : <ChevronDown className="w-3 h-3 text-zinc-500" />
-            }
-          </button>
-          {systemPromptOpen && systemPrompt && (
-            <div className="px-3 pb-2">
-              <pre className="text-[10px] text-zinc-500 bg-zinc-800/60 rounded-lg p-2 border border-zinc-700 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
-                {systemPrompt}
-              </pre>
+          )}
+        </button>
+      </div>
+
+      {/* Content */}
+      {tab === 'log' ? (
+        <AgentLogViewer />
+      ) : (
+        <>
+          {/* Active template badge + system prompt */}
+          {activeTemplate && (
+            <div className="border-b border-zinc-800 bg-zinc-900/80 shrink-0">
+              <button
+                onClick={() => setSystemPromptOpen(!systemPromptOpen)}
+                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-800/50 transition-colors"
+              >
+                <LayoutTemplate className="w-3 h-3 text-indigo-400 shrink-0" />
+                <span className="text-[11px] text-indigo-300 flex-1 text-left truncate">
+                  {activeTemplate.emoji} {activeTemplate.name}
+                </span>
+                {systemPromptOpen
+                  ? <ChevronUp className="w-3 h-3 text-zinc-500" />
+                  : <ChevronDown className="w-3 h-3 text-zinc-500" />
+                }
+              </button>
+              {systemPromptOpen && systemPrompt && (
+                <div className="px-3 pb-2">
+                  <pre className="text-[10px] text-zinc-500 bg-zinc-800/60 rounded-lg p-2 border border-zinc-700 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
+                    {systemPrompt}
+                  </pre>
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {chatMessages.length === 0 && !pendingSuggestion && (
-          <EmptyState onSuggestion={(s) => { setInput(s); sendMessage(s) }} suggestions={SUGGESTIONS} />
-        )}
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {chatMessages.length === 0 && !pendingSuggestion && (
+              <EmptyState onSuggestion={(s) => { setInput(s); sendMessage(s) }} suggestions={SUGGESTIONS} />
+            )}
 
-        {chatMessages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
-
-        {agentStatus === 'thinking' && <ThinkingIndicator />}
-
-        {pendingSuggestion && (
-          <SuggestionCard suggestion={pendingSuggestion} />
-        )}
-
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <div className="border-t border-zinc-800 p-3 shrink-0">
-        {/* Quick suggestion chips */}
-        {chatMessages.length === 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {SUGGESTIONS.slice(0, 2).map((s) => (
-              <button
-                key={s}
-                onClick={() => { sendMessage(s) }}
-                className="text-xs px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-full border border-zinc-700 transition-colors"
-              >
-                {s}
-              </button>
+            {chatMessages.map((msg) => (
+              <MessageBubble key={msg.id} message={msg} />
             ))}
-          </div>
-        )}
 
-        <div className="flex items-end gap-2">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={currentNote ? 'フローについて質問...' : 'ノートを選択してください'}
-            disabled={!currentNote || agentStatus === 'thinking'}
-            rows={2}
-            className="flex-1 bg-zinc-800 text-sm text-zinc-200 placeholder:text-zinc-600 rounded-lg px-3 py-2 resize-none outline-none border border-zinc-700 focus:border-indigo-600 transition-colors disabled:opacity-40"
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || !currentNote || agentStatus === 'thinking'}
-            className="p-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 disabled:opacity-40 text-white rounded-lg transition-colors shrink-0"
-            title="送信 (Enter)"
-          >
-            {agentStatus === 'thinking'
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <Send className="w-4 h-4" />
-            }
-          </button>
-        </div>
-        <p className="text-xs text-zinc-600 mt-1.5">Enter で送信 / Shift+Enter で改行</p>
-      </div>
+            {agentStatus === 'thinking' && <ThinkingIndicator />}
+
+            {pendingSuggestion && (
+              <SuggestionCard suggestion={pendingSuggestion} />
+            )}
+
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Input */}
+          <div className="border-t border-zinc-800 p-3 shrink-0">
+            {/* Quick suggestion chips */}
+            {chatMessages.length === 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {SUGGESTIONS.slice(0, 2).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => { sendMessage(s) }}
+                    className="text-xs px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-full border border-zinc-700 transition-colors"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-end gap-2">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={currentNote ? 'フローについて質問...' : 'ノートを選択してください'}
+                disabled={!currentNote || agentStatus === 'thinking'}
+                rows={2}
+                className="flex-1 bg-zinc-800 text-sm text-zinc-200 placeholder:text-zinc-600 rounded-lg px-3 py-2 resize-none outline-none border border-zinc-700 focus:border-indigo-600 transition-colors disabled:opacity-40"
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || !currentNote || agentStatus === 'thinking'}
+                className="p-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 disabled:opacity-40 text-white rounded-lg transition-colors shrink-0"
+                title="送信 (Enter)"
+              >
+                {agentStatus === 'thinking'
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : <Send className="w-4 h-4" />
+                }
+              </button>
+            </div>
+            <p className="text-xs text-zinc-600 mt-1.5">Enter で送信 / Shift+Enter で改行</p>
+          </div>
+        </>
+      )}
     </div>
   )
 }

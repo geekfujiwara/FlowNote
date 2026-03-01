@@ -13,6 +13,7 @@ function resetStore() {
     chatMessages: [],
     agentStatus: 'idle',
     pendingSuggestion: null,
+    agentLogs: [],
     canvasMode: 'select',
     selectedNodeIds: [],
     selectedEdgeIds: [],
@@ -255,6 +256,84 @@ describe('useStore – sendMessageToAgent', () => {
     })
     expect(useStore.getState().pendingSuggestion).not.toBeNull()
     expect(useStore.getState().pendingSuggestion!.impacts.nodesDelta).toBeGreaterThan(0)
+  })
+})
+
+describe('useStore – agentLogs', () => {
+  beforeEach(resetStore)
+
+  it('初期状態で agentLogs は空配列', () => {
+    expect(useStore.getState().agentLogs).toEqual([])
+  })
+
+  it('sendMessageToAgent 後に agentLogs に1件追加される', async () => {
+    act(() => useStore.getState().newNote())
+    await act(async () => {
+      await useStore.getState().sendMessageToAgent('ノードを追加して')
+    })
+    expect(useStore.getState().agentLogs).toHaveLength(1)
+  })
+
+  it('agentLogs エントリにユーザーメッセージが記録される', async () => {
+    act(() => useStore.getState().newNote())
+    await act(async () => {
+      await useStore.getState().sendMessageToAgent('テストメッセージ')
+    })
+    const log = useStore.getState().agentLogs[0]
+    expect(log.message).toBe('テストメッセージ')
+  })
+
+  it('agentLogs エントリに requestPayload が含まれる', async () => {
+    act(() => useStore.getState().newNote())
+    await act(async () => {
+      await useStore.getState().sendMessageToAgent('フローを変更して')
+    })
+    const log = useStore.getState().agentLogs[0]
+    expect(log.requestPayload).toBeDefined()
+    expect((log.requestPayload as { message: string }).message).toBe('フローを変更して')
+  })
+
+  it('成功時は agentLogs エントリに responsePayload が含まれる', async () => {
+    act(() => useStore.getState().newNote())
+    await act(async () => {
+      await useStore.getState().sendMessageToAgent('説明して')
+    })
+    const log = useStore.getState().agentLogs[0]
+    expect(log.responsePayload).not.toBeNull()
+    expect(log.errorMessage).toBeUndefined()
+  })
+
+  it('agentLogs エントリに durationMs が記録される', async () => {
+    act(() => useStore.getState().newNote())
+    await act(async () => {
+      await useStore.getState().sendMessageToAgent('テスト')
+    })
+    const log = useStore.getState().agentLogs[0]
+    expect(log.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('複数回送信すると agentLogs が最新順に積まれる', async () => {
+    act(() => useStore.getState().newNote())
+    await act(async () => {
+      await useStore.getState().sendMessageToAgent('1回目')
+    })
+    await act(async () => {
+      await useStore.getState().sendMessageToAgent('2回目')
+    })
+    const logs = useStore.getState().agentLogs
+    expect(logs).toHaveLength(2)
+    expect(logs[0].message).toBe('2回目')  // newest first
+    expect(logs[1].message).toBe('1回目')
+  })
+
+  it('clearAgentLogs で agentLogs が空になる', async () => {
+    act(() => useStore.getState().newNote())
+    await act(async () => {
+      await useStore.getState().sendMessageToAgent('テスト')
+    })
+    expect(useStore.getState().agentLogs).toHaveLength(1)
+    act(() => { useStore.getState().clearAgentLogs() })
+    expect(useStore.getState().agentLogs).toEqual([])
   })
 })
 

@@ -11,6 +11,7 @@ import type {
   LastAppliedChange,
   FlowNodeData,
   VersionEntry,
+  AgentLog,
 } from '@/types'
 import { parseFlowFromMarkdown } from '@/lib/flowParser'
 import { trackEvent } from '@/lib/appInsights'
@@ -53,6 +54,7 @@ export interface FlowNoteState {
   chatMessages: ChatMessage[]
   agentStatus: AgentStatus
   pendingSuggestion: Suggestion | null
+  agentLogs: AgentLog[]
 
   // Version history
   versionHistory: VersionEntry[]
@@ -93,6 +95,7 @@ export interface FlowNoteState {
   applySuggestion: () => void
   discardSuggestion: () => void
   clearChatMessages: () => void
+  clearAgentLogs: () => void
 
   // Version history
   saveVersion: (label: string) => void
@@ -132,6 +135,7 @@ export const useStore = create<FlowNoteState>()(
     chatMessages: [],
     agentStatus: 'idle',
     pendingSuggestion: null,
+    agentLogs: [],
     versionHistory: [],
     canvasMode: 'select',
     selectedNodeIds: [],
@@ -290,18 +294,24 @@ export const useStore = create<FlowNoteState>()(
         agentStatus: 'thinking',
       }))
 
+      const logId = uuidv4()
+      const logTimestamp = new Date().toISOString()
+      const requestPayload = {
+        noteId: currentNote?.id ?? '',
+        message,
+        context: {
+          markdown,
+          selection: { nodeIds: selectedNodeIds, edgeIds: selectedEdgeIds },
+          metadata: currentNote,
+          systemPrompt: get().systemPrompt || undefined,
+          templateId: get().activeTemplateId || undefined,
+        },
+      }
+      const tStart = performance.now()
+
       try {
-        const suggestion = await mockApi.agentChat({
-          noteId: currentNote?.id ?? '',
-          message,
-          context: {
-            markdown,
-            selection: { nodeIds: selectedNodeIds, edgeIds: selectedEdgeIds },
-            metadata: currentNote,
-            systemPrompt: get().systemPrompt || undefined,
-            templateId: get().activeTemplateId || undefined,
-          },
-        })
+        const suggestion = await mockApi.agentChat(requestPayload)
+        const durationMs = Math.round(performance.now() - tStart)
 
         const agentMsg: ChatMessage = {
           id: uuidv4(),
@@ -311,22 +321,42 @@ export const useStore = create<FlowNoteState>()(
           agentTrace: suggestion.agentTrace,
           executionMs: suggestion.executionMs,
         }
+        const log: AgentLog = {
+          id: logId,
+          timestamp: logTimestamp,
+          message,
+          requestPayload: requestPayload as Record<string, unknown>,
+          responsePayload: suggestion as unknown as Record<string, unknown>,
+          durationMs,
+        }
         set((s) => ({
           chatMessages: [...s.chatMessages, agentMsg],
           agentStatus: 'idle',
           pendingSuggestion: suggestion,
+          agentLogs: [log, ...s.agentLogs],
         }))
         trackEvent('agent_message_sent', { message: message.slice(0, 80) })
-      } catch {
+      } catch (err) {
+        const durationMs = Math.round(performance.now() - tStart)
         const errMsg: ChatMessage = {
           id: uuidv4(),
           role: 'agent',
           content: 'エラーが発生しました。もう一度お試しください。',
           timestamp: new Date().toISOString(),
         }
+        const log: AgentLog = {
+          id: logId,
+          timestamp: logTimestamp,
+          message,
+          requestPayload: requestPayload as Record<string, unknown>,
+          responsePayload: null,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          durationMs,
+        }
         set((s) => ({
           chatMessages: [...s.chatMessages, errMsg],
           agentStatus: 'error',
+          agentLogs: [log, ...s.agentLogs],
         }))
       }
     },
@@ -395,6 +425,11 @@ export const useStore = create<FlowNoteState>()(
     // ─── clearChatMessages ──────────────────
     clearChatMessages: () => {
       set({ chatMessages: [], pendingSuggestion: null, agentStatus: 'idle' })
+    },
+
+    // ─── clearAgentLogs ─────────────────────
+    clearAgentLogs: () => {
+      set({ agentLogs: [] })
     },
 
     // ─── setTags ────────────────────────────

@@ -1,0 +1,77 @@
+(node:111572) ExperimentalWarning: CommonJS module C:\Users\hfujiwara\AppData\Roaming\npm\node_modules\npm\node_modules\debug\src\node.js is loading ES Module C:\Users\hfujiwara\AppData\Roaming\npm\node_modules\npm\node_modules\supports-color\index.js using require().
+Support for loading ES Module in require() is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mC:/FlowNote[39m
+
+(node:159340) ExperimentalWarning: CommonJS module C:\FlowNote\node_modules\@asamuzakjp\css-color\dist\cjs\index.cjs is loading ES Module C:\FlowNote\node_modules\@csstools\css-calc\dist\index.mjs using require().
+Support for loading ES Module in require() is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:115484) ExperimentalWarning: CommonJS module C:\FlowNote\node_modules\@asamuzakjp\css-color\dist\cjs\index.cjs is loading ES Module C:\FlowNote\node_modules\@csstools\css-calc\dist\index.mjs using require().
+Support for loading ES Module in require() is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:18660) ExperimentalWarning: CommonJS module C:\FlowNote\node_modules\@asamuzakjp\css-color\dist\cjs\index.cjs is loading ES Module C:\FlowNote\node_modules\@csstools\css-calc\dist\index.mjs using require().
+Support for loading ES Module in require() is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:107320) ExperimentalWarning: CommonJS module C:\FlowNote\node_modules\@asamuzakjp\css-color\dist\cjs\index.cjs is loading ES Module C:\FlowNote\node_modules\@csstools\css-calc\dist\index.mjs using require().
+Support for loading ES Module in require() is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:7228) ExperimentalWarning: CommonJS module C:\FlowNote\node_modules\@asamuzakjp\css-color\dist\cjs\index.cjs is loading ES Module C:\FlowNote\node_modules\@csstools\css-calc\dist\index.mjs using require().
+Support for loading ES Module in require() is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:98020) ExperimentalWarning: CommonJS module C:\FlowNote\node_modules\@asamuzakjp\css-color\dist\cjs\index.cjs is loading ES Module C:\FlowNote\node_modules\@csstools\css-calc\dist\index.mjs using require().
+Support for loading ES Module in require() is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:153068) ExperimentalWarning: CommonJS module C:\FlowNote\node_modules\@asamuzakjp\css-color\dist\cjs\index.cjs is loading ES Module C:\FlowNote\node_modules\@csstools\css-calc\dist\index.mjs using require().
+Support for loading ES Module in require() is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ [32m笨・[39m src/test/exportSvg.test.ts [2m([22m[2m15 tests[22m[2m)[22m[32m 15[2mms[22m[39m
+ [32m笨・[39m src/test/templates.test.ts [2m([22m[2m36 tests[22m[2m)[22m[32m 43[2mms[22m[39m
+ [32m笨・[39m src/test/dagLayout.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 90[2mms[22m[39m
+ [32m笨・[39m src/test/flowParser.test.ts [2m([22m[2m17 tests[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m笨・[39m src/test/components.test.tsx [2m([22m[2m35 tests[22m[2m)[22m[33m 4420[2mms[22m[39m
+   [33m[2m笨・[22m[39m TemplateGallery[2m > [22m縲娯恤縲阪・繧ｿ繝ｳ繧偵け繝ｪ繝・け縺吶ｋ縺ｨ onClose 縺悟他縺ｰ繧後ｋ [33m 433[2mms[22m[39m
+   [33m[2m笨・[22m[39m TemplateGallery[2m > [22m繧ｫ繝・ざ繝ｪ縲悟・譫舌阪〒繝輔ぅ繝ｫ繧ｿ縺吶ｋ縺ｨanalysis縺ｮ繝・Φ繝励Ξ繝ｼ繝医□縺題｡ｨ遉ｺ縺輔ｌ繧・[33m 465[2mms[22m[39m
+   [33m[2m笨・[22m[39m TemplateGallery[2m > [22m繧ｫ繝・ざ繝ｪ縲御ｼ∫判縲阪〒繝輔ぅ繝ｫ繧ｿ縺梧ｩ溯・縺吶ｋ [33m 397[2mms[22m[39m
+   [33m[2m笨・[22m[39m TemplateGallery[2m > [22m繧ｫ繝・ざ繝ｪ縲後・繝ｭ繧ｻ繧ｹ縲阪〒繝輔ぅ繝ｫ繧ｿ縺梧ｩ溯・縺吶ｋ [33m 368[2mms[22m[39m
+   [33m[2m笨・[22m[39m TemplateGallery[2m > [22m縲後☆縺ｹ縺ｦ縲阪↓謌ｻ縺吶→蜈ｨ繝・Φ繝励Ξ繝ｼ繝医′陦ｨ遉ｺ縺輔ｌ繧・[33m 615[2mms[22m[39m
+ [32m笨・[39m src/test/mockApi.test.ts [2m([22m[2m17 tests[22m[2m)[22m[33m 14415[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・listNotes[2m > [22m蛻晄悄迥ｶ諷九・遨ｺ驟榊・繧定ｿ斐☆ [33m 307[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・listNotes[2m > [22m菫晏ｭ伜ｾ後↓繝弱・繝医′荳隕ｧ縺ｫ迴ｾ繧後ｋ [33m 631[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・listNotes[2m > [22m譁ｰ縺励＞鬆・updatedAt髯埼・縺ｫ荳ｦ縺ｶ [33m 951[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・saveNote / loadNote[2m > [22m菫晏ｭ倥＠縺溘ヮ繝ｼ繝医ｒ id 縺ｧ蜿門ｾ励〒縺阪ｋ [33m 608[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・saveNote / loadNote[2m > [22m荳頑嶌縺堺ｿ晏ｭ倥〒蜀・ｮｹ縺梧峩譁ｰ縺輔ｌ繧・[33m 931[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・saveNote / loadNote[2m > [22mtags 縺御ｿ晏ｭ倥・蠕ｩ蜈・＆繧後ｋ [33m 624[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・saveNote / loadNote[2m > [22m蟄伜惠縺励↑縺・id 縺ｧ loadNote 縺吶ｋ縺ｨ繧ｨ繝ｩ繝ｼ縺ｫ縺ｪ繧・[33m 321[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・saveNote / loadNote[2m > [22mupdatedAt 縺・ISO 譁・ｭ怜・縺ｨ縺励※霑斐ｋ [33m 613[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・deleteNote[2m > [22m蜑企勁蠕後・荳隕ｧ縺九ｉ豸医∴繧・[33m 948[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・deleteNote[2m > [22m蟄伜惠縺励↑縺・id 繧貞炎髯､縺励※繧ゅお繝ｩ繝ｼ縺ｫ縺ｪ繧峨↑縺・[33m 305[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・deleteNote[2m > [22m蜑企勁蠕後↓ loadNote 縺吶ｋ縺ｨ繧ｨ繝ｩ繝ｼ縺ｫ縺ｪ繧・[33m 923[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・agentChat (mock)[2m > [22msuggestionId 繧定ｿ斐☆ [33m 1208[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・agentChat (mock)[2m > [22msummary 縺梧枚蟄怜・縺ｨ縺励※霑斐ｋ [33m 1203[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・agentChat (mock)[2m > [22mimpacts 縺ｫ nodesDelta / edgesDelta 縺悟性縺ｾ繧後ｋ [33m 1207[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・agentChat (mock)[2m > [22m"霑ｽ蜉" 繝｡繝・そ繝ｼ繧ｸ縺ｧ nodesDelta > 0 縺ｫ縺ｪ繧・[33m 1207[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・agentChat (mock)[2m > [22m"繧ｷ繝ｳ繝励Ν" 繝｡繝・そ繝ｼ繧ｸ縺ｧ markdown 縺瑚ｿ斐ｋ [33m 1207[2mms[22m[39m
+   [33m[2m笨・[22m[39m mockApi 窶・agentChat (mock)[2m > [22m"荳ｦ陦・ 繝｡繝・そ繝ｼ繧ｸ縺ｧ荳ｦ陦悟・逅・ヵ繝ｭ繝ｼ縺瑚ｿ斐ｋ [33m 1212[2mms[22m[39m
+ [32m笨・[39m src/test/store.test.ts [2m([22m[2m44 tests[22m[2m)[22m[33m 18798[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・saveNote / loadNote / listNotes[2m > [22msaveNote 竊・listNotes 縺ｧ繝弱・繝医′荳隕ｧ縺ｫ迴ｾ繧後ｋ [33m 929[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・saveNote / loadNote / listNotes[2m > [22msaveNote 縺ｧ isSaving 縺・true 竊・false 縺ｫ驕ｷ遘ｻ縺吶ｋ [33m 608[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・saveNote / loadNote / listNotes[2m > [22mloadNote 縺ｧ currentNote 縺ｨ markdown 縺梧峩譁ｰ縺輔ｌ繧・[33m 1250[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・deleteNote[2m > [22m蜑企勁蠕後↓ currentNote 縺・null 縺ｫ縺ｪ繧具ｼ亥炎髯､縺励◆繝弱・繝医′迴ｾ蝨ｨ髢九＞縺ｦ縺・ｋ蝣ｴ蜷茨ｼ・[33m 1234[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・sendMessageToAgent[2m > [22m繝ｦ繝ｼ繧ｶ繝ｼ繝｡繝・そ繝ｼ繧ｸ縺・chatMessages 縺ｫ霑ｽ蜉縺輔ｌ繧・[33m 1207[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・sendMessageToAgent[2m > [22m繧ｨ繝ｼ繧ｸ繧ｧ繝ｳ繝亥ｿ懃ｭ斐′ chatMessages 縺ｫ霑ｽ蜉縺輔ｌ繧・[33m 1218[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・sendMessageToAgent[2m > [22m騾∽ｿ｡蠕後↓ agentStatus 縺・idle 縺ｫ謌ｻ繧・[33m 1207[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・sendMessageToAgent[2m > [22m"霑ｽ蜉" 繝｡繝・そ繝ｼ繧ｸ縺ｧ pendingSuggestion 縺瑚ｨｭ螳壹＆繧後ｋ [33m 1209[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・agentLogs[2m > [22msendMessageToAgent 蠕後↓ agentLogs 縺ｫ1莉ｶ霑ｽ蜉縺輔ｌ繧・[33m 1205[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・agentLogs[2m > [22magentLogs 繧ｨ繝ｳ繝医Μ縺ｫ繝ｦ繝ｼ繧ｶ繝ｼ繝｡繝・そ繝ｼ繧ｸ縺瑚ｨ倬鹸縺輔ｌ繧・[33m 1205[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・agentLogs[2m > [22magentLogs 繧ｨ繝ｳ繝医Μ縺ｫ requestPayload 縺悟性縺ｾ繧後ｋ [33m 1209[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・agentLogs[2m > [22m謌仙粥譎ゅ・ agentLogs 繧ｨ繝ｳ繝医Μ縺ｫ responsePayload 縺悟性縺ｾ繧後ｋ [33m 1207[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・agentLogs[2m > [22magentLogs 繧ｨ繝ｳ繝医Μ縺ｫ durationMs 縺瑚ｨ倬鹸縺輔ｌ繧・[33m 1227[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・agentLogs[2m > [22m隍・焚蝗樣∽ｿ｡縺吶ｋ縺ｨ agentLogs 縺梧怙譁ｰ鬆・↓遨阪∪繧後ｋ [33m 2445[2mms[22m[39m
+   [33m[2m笨・[22m[39m useStore 窶・agentLogs[2m > [22mclearAgentLogs 縺ｧ agentLogs 縺檎ｩｺ縺ｫ縺ｪ繧・[33m 1207[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m7 passed[39m[22m[90m (7)[39m
+[2m      Tests [22m [1m[32m176 passed[39m[22m[90m (176)[39m
+[2m   Start at [22m 12:01:12
+[2m   Duration [22m 26.31s[2m (transform 1.18s, setup 4.82s, collect 5.08s, tests 37.81s, environment 28.00s, prepare 4.67s)[22m
+
