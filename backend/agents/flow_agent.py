@@ -197,12 +197,12 @@ def _patch_semconv_fa(mod_path: str) -> None:
     except Exception:
         pass
 
-for _mp_fa in ('opentelemetry.semconv.ai', 'opentelemetry.semconv.trace', 'opentelemetry.semconv'):
+for _mp_fa in ('opentelemetry.semconv_ai', 'opentelemetry.semconv.ai', 'opentelemetry.semconv.trace', 'opentelemetry.semconv'):
     _patch_semconv_fa(_mp_fa)
 
 # Import hook: for modules not yet loaded
 class _SemconvHookFA:
-    _TARGETS = frozenset({'opentelemetry.semconv.ai', 'opentelemetry.semconv.trace'})
+    _TARGETS = frozenset({'opentelemetry.semconv_ai', 'opentelemetry.semconv.ai', 'opentelemetry.semconv.trace'})
     def find_spec(self, fullname, path, target=None):  # noqa: ARG002
         if fullname not in self._TARGETS or fullname in _sys_fa.modules:
             return None
