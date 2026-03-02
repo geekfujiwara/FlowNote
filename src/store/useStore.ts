@@ -389,19 +389,20 @@ export const useStore = create<FlowNoteState>()(
         }
         // Auto-apply the suggestion immediately and switch to compare view,
         // but only if a markdown change is actually provided.
-        const { nodes: curNodes, edges: curEdges, markdown: curMd, setMarkdown, saveVersion } = get()
+        const { nodes: curNodes, edges: curEdges, markdown: curMd, setMarkdown, saveVersion, parseAndLayout } = get()
         const hasMarkdownChange = !!suggestion.markdown && suggestion.markdown !== curMd
 
         if (hasMarkdownChange) {
-          const snapshotNodes = curNodes
-          const snapshotEdges = curEdges
+          const snapshotNodes = [...curNodes]
+          const snapshotEdges = [...curEdges]
           const snapshotMd = curMd
-          saveVersion('変更前の状態を保存')
           const newMd = suggestion.markdown!
+          // Compute after-nodes directly from the new markdown (independent of setMarkdown timing)
+          const { nodes: rawAfterNodes, edges: rawAfterEdges } = parseAndLayout(newMd)
+          saveVersion('変更前の状態を保存')
           setMarkdown(newMd, 'agent')
-          const afterState = get()
-          const afterNodes = afterState.nodes
-          const afterEdges = afterState.edges
+          const afterNodes = rawAfterNodes
+          const afterEdges = rawAfterEdges
           const vEntry: VersionEntry = {
             id: uuidv4(),
             label: `AI: ${suggestion.summary.slice(0, 40)}`,
