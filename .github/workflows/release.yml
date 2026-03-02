@@ -456,6 +456,9 @@ jobs:
         # Both platform CORS (this step) and in-code CORS headers (_CORS_HEADERS in
         # function_app.py) are kept as defense-in-depth: platform handles preflight
         # during cold starts; code handles it for subsequent warm requests.
+        # continue-on-error: SP may temporarily lack Microsoft.Web/sites/config/read;
+        # CORS wildcard is pre-configured and code also sets CORS headers.
+        continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
