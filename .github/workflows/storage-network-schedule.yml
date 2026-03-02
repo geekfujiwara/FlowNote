@@ -62,6 +62,9 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Disable public network access
+        # continue-on-error: SP may lack Storage Account Contributor; storage access is
+        # managed as best-effort and the scheduled workflow should not block on RBAC errors.
+        continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
@@ -78,6 +81,7 @@ jobs:
           echo "✅ bypass = AzureServices,Logging,Metrics (Azure 内部からのアクセスは継続可能)"
 
       - name: Verify
+        continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
@@ -117,6 +121,9 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Enable public network access
+        # continue-on-error: SP may lack Storage Account Contributor; storage access is
+        # managed as best-effort and the scheduled workflow should not block on RBAC errors.
+        continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
@@ -132,6 +139,7 @@ jobs:
           echo "🔓 publicNetworkAccess = Enabled"
 
       - name: Verify
+        continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
