@@ -94,52 +94,8 @@ interface ReadonlyFlowPanelProps {
   labelColor: string
 }
 
-// Inner component that can call useReactFlow() after the provider is mounted
-function ReadonlyFlowInner({ nodes, edges }: { nodes: Node<FlowNodeData>[]; edges: Edge[] }) {
-  const { fitView } = useReactFlow()
-  const miniMapStyle = { backgroundColor: '#18181b' }
-
-  // Call fitView imperatively after the component mounts and layout is computed
-  React.useEffect(() => {
-    // Double rAF ensures the browser has laid out the flex container before measuring
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        fitView({ padding: 0.25, duration: 0 })
-      })
-    })
-  }, [fitView]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      nodesDraggable={false}
-      nodesConnectable={false}
-      elementsSelectable={false}
-      zoomOnDoubleClick={false}
-      className="bg-zinc-950"
-    >
-      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3f3f46" />
-      <Controls className="!bg-zinc-800 !border-zinc-700" showInteractive={false} />
-      <MiniMap
-        style={miniMapStyle}
-        nodeColor={(n) => {
-          const data = n.data as FlowNodeData
-          switch (data?.nodeType) {
-            case 'input':    return '#6366f1'
-            case 'output':   return '#10b981'
-            case 'selector': return '#f59e0b'
-            default:         return '#52525b'
-          }
-        }}
-        maskColor="rgba(0,0,0,0.4)"
-      />
-    </ReactFlow>
-  )
-}
-
 function ReadonlyFlowPanel({ nodes, edges, label, labelColor }: ReadonlyFlowPanelProps) {
+  const miniMapStyle = { backgroundColor: '#18181b' }
   return (
     <div className="flex-1 relative bg-zinc-950 border-r border-zinc-700 last:border-r-0 overflow-hidden">
       {/* Panel header label */}
@@ -147,7 +103,35 @@ function ReadonlyFlowPanel({ nodes, edges, label, labelColor }: ReadonlyFlowPane
         {label}
       </div>
       <ReactFlowProvider>
-        <ReadonlyFlowInner nodes={nodes} edges={edges} />
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          zoomOnDoubleClick={false}
+          fitView
+          fitViewOptions={{ padding: 0.2, includeHiddenNodes: true }}
+          nodeOrigin={[0, 0]}
+          className="bg-zinc-950"
+        >
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3f3f46" />
+          <Controls className="!bg-zinc-800 !border-zinc-700" showInteractive={false} />
+          <MiniMap
+            style={miniMapStyle}
+            nodeColor={(n) => {
+              const data = n.data as FlowNodeData
+              switch (data?.nodeType) {
+                case 'input':    return '#6366f1'
+                case 'output':   return '#10b981'
+                case 'selector': return '#f59e0b'
+                default:         return '#52525b'
+              }
+            }}
+            maskColor="rgba(0,0,0,0.4)"
+          />
+        </ReactFlow>
       </ReactFlowProvider>
     </div>
   )

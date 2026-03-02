@@ -36,6 +36,8 @@ export function applyDagreLayout(
         x: pos ? pos.x - NODE_WIDTH / 2 : 0,
         y: pos ? pos.y - NODE_HEIGHT / 2 : 0,
       },
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
       data: {
         label: n.label,
         nodeType: n.type,
