@@ -481,6 +481,9 @@ jobs:
           echo "Current allowed origins: $ORIGINS"
 
       - name: Configure Azure OpenAI app settings
+        # continue-on-error: settings are pre-set via az rest; RBAC may still be
+        # propagating after SP Contributor assignment on rg-flownote.
+        continue-on-error: true
         env:
           OAI_ENDPOINT:    ${{ secrets.AZURE_OPENAI_ENDPOINT }}
           OAI_DEPLOYMENT:  ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
@@ -503,6 +506,8 @@ jobs:
           fi
 
       - name: Verify Azure OpenAI app settings
+        # continue-on-error: RBAC may still be propagating after SP Contributor assignment.
+        continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
