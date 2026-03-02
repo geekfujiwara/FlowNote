@@ -19,6 +19,7 @@ import {
   Position,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
+import { Check, Undo2 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { CustomNode } from './CustomNode'
 import { CanvasEditToolbar } from './CanvasEditToolbar'
@@ -141,9 +142,11 @@ interface CompareSplitViewProps {
   beforeEdges: Edge[]
   afterNodes: Node<FlowNodeData>[]
   afterEdges: Edge[]
+  onConfirm: () => void
+  onRevert: () => void
 }
 
-function CompareSplitView({ beforeNodes, beforeEdges, afterNodes, afterEdges }: CompareSplitViewProps) {
+function CompareSplitView({ beforeNodes, beforeEdges, afterNodes, afterEdges, onConfirm, onRevert }: CompareSplitViewProps) {
   const afterNodeIds = new Set(afterNodes.map((n) => n.id))
   const beforeNodeIds = new Set(beforeNodes.map((n) => n.id))
 
@@ -172,18 +175,42 @@ function CompareSplitView({ beforeNodes, beforeEdges, afterNodes, afterEdges }: 
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* Diff summary bar */}
-      <div className="flex items-center justify-center gap-4 bg-zinc-900 border-b border-zinc-700 py-1.5 text-xs">
-        <span className="text-zinc-400">AI変更の比較</span>
+      {/* Diff summary bar with action buttons */}
+      <div className="flex items-center gap-3 px-4 bg-zinc-900 border-b border-zinc-700 py-1.5">
+        <span className="text-xs text-zinc-400 font-medium">AI変更の比較</span>
         {removedCount > 0 && (
-          <span className="text-rose-400">− {removedCount}ノード削除</span>
+          <span className="text-xs text-rose-400">−&nbsp;{removedCount}ノード削除</span>
         )}
         {addedCount > 0 && (
-          <span className="text-purple-400">+ {addedCount}ノード追加</span>
+          <span className="text-xs text-purple-400">+&nbsp;{addedCount}ノード追加</span>
         )}
         {removedCount === 0 && addedCount === 0 && (
-          <span className="text-zinc-500">ノードの差分なし</span>
+          <span className="text-xs text-zinc-500">ノードの差分なし</span>
         )}
+
+        <div className="flex-1" />
+
+        {/* Revert button */}
+        <button
+          onClick={onRevert}
+          className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium
+            bg-zinc-700 hover:bg-zinc-600 text-zinc-200 hover:text-white
+            border border-zinc-600 transition-colors"
+        >
+          <Undo2 className="w-3.5 h-3.5" />
+          元に戻す
+        </button>
+
+        {/* Confirm button */}
+        <button
+          onClick={onConfirm}
+          className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium
+            bg-purple-600 hover:bg-purple-500 text-white
+            border border-purple-500 transition-colors"
+        >
+          <Check className="w-3.5 h-3.5" />
+          適用する
+        </button>
       </div>
       {/* Two panels side by side */}
       <div className="flex flex-1 overflow-hidden">
@@ -223,6 +250,8 @@ function FlowCanvasInner() {
   const compareMode = useStore((s) => s.compareMode)
   const beforeCompareNodes = useStore((s) => s.beforeCompareNodes)
   const beforeCompareEdges = useStore((s) => s.beforeCompareEdges)
+  const applySuggestion = useStore((s) => s.applySuggestion)
+  const revertLastAgentChange = useStore((s) => s.revertLastAgentChange)
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>(storeNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(storeEdges)
@@ -392,6 +421,8 @@ function FlowCanvasInner() {
           beforeEdges={beforeCompareEdges}
           afterNodes={storeNodes}
           afterEdges={storeEdges}
+          onConfirm={applySuggestion}
+          onRevert={revertLastAgentChange}
         />
       </div>
     )

@@ -2,7 +2,6 @@ import React from 'react'
 import type { Suggestion } from '@/types'
 import { useStore } from '@/store/useStore'
 import {
-  Check,
   X,
   RefreshCw,
   Layers,
@@ -18,7 +17,6 @@ interface Props {
 }
 
 export function SuggestionCard({ suggestion }: Props) {
-  const applySuggestion = useStore((s) => s.applySuggestion)
   const discardSuggestion = useStore((s) => s.discardSuggestion)
   const sendMessage = useStore((s) => s.sendMessageToAgent)
 
@@ -59,22 +57,13 @@ export function SuggestionCard({ suggestion }: Props) {
 
       {/* Actions */}
       <div className="flex gap-1.5 px-3 pb-3">
-        {/* Apply */}
-        <button
-          onClick={applySuggestion}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium rounded-lg transition-colors"
-        >
-          <Check className="w-3.5 h-3.5" />
-          適用
-        </button>
-
         {/* Regenerate */}
         <button
           onClick={handleRegenerate}
-          className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors"
-          title="再生成"
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium rounded-lg transition-colors"
         >
           <RefreshCw className="w-3.5 h-3.5" />
+          再生成
         </button>
 
         {/* Discard */}

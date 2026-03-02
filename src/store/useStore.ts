@@ -77,6 +77,7 @@ export interface FlowNoteState {
   compareMode: boolean
   beforeCompareNodes: Node<FlowNodeData>[] | null
   beforeCompareEdges: Edge[] | null
+  beforeCompareMd: string | null
 
   // Async flags
   isSaving: boolean
@@ -100,6 +101,7 @@ export interface FlowNoteState {
   // Agent / Chat
   sendMessageToAgent: (message: string, attachedFiles?: AttachedFile[]) => Promise<void>
   applySuggestion: () => void
+  revertLastAgentChange: () => void
   discardSuggestion: () => void
   clearChatMessages: () => void
   clearAgentLogs: () => void
@@ -155,6 +157,7 @@ export const useStore = create<FlowNoteState>()(
     compareMode: false,
     beforeCompareNodes: null,
     beforeCompareEdges: null,
+    beforeCompareMd: null,
     isSaving: false,
     notesLoading: true,
     isConnected: false,
@@ -380,12 +383,48 @@ export const useStore = create<FlowNoteState>()(
           responsePayload: suggestion as unknown as Record<string, unknown>,
           durationMs,
         }
-        set((s) => ({
-          chatMessages: [...s.chatMessages, agentMsg],
-          agentStatus: 'idle',
-          pendingSuggestion: suggestion,
-          agentLogs: [log, ...s.agentLogs],
-        }))
+        // Auto-apply the suggestion immediately and switch to compare view,
+        // but only if a markdown change is actually provided.
+        const { nodes: curNodes, edges: curEdges, markdown: curMd, setMarkdown, saveVersion } = get()
+        const hasMarkdownChange = !!suggestion.markdown && suggestion.markdown !== curMd
+
+        if (hasMarkdownChange) {
+          const snapshotNodes = curNodes
+          const snapshotEdges = curEdges
+          const snapshotMd = curMd
+          saveVersion('変更前の状態を保存')
+          const newMd = suggestion.markdown!
+          setMarkdown(newMd, 'agent')
+          const afterState = get()
+          const vEntry: VersionEntry = {
+            id: uuidv4(),
+            label: `AI: ${suggestion.summary.slice(0, 40)}`,
+            timestamp: new Date().toISOString(),
+            markdown: newMd,
+            nodeCount: afterState.nodes.length,
+            edgeCount: afterState.edges.length,
+          }
+          set((s) => ({
+            chatMessages: [...s.chatMessages, agentMsg],
+            agentStatus: 'idle',
+            pendingSuggestion: null,
+            agentLogs: [log, ...s.agentLogs],
+            beforeCompareNodes: snapshotNodes,
+            beforeCompareEdges: snapshotEdges,
+            beforeCompareMd: snapshotMd,
+            compareMode: true,
+            versionHistory: [vEntry, ...s.versionHistory].slice(0, 50),
+          }))
+          get().saveNote()
+        } else {
+          // No markdown change — just show the agent message without compare view
+          set((s) => ({
+            chatMessages: [...s.chatMessages, agentMsg],
+            agentStatus: 'idle',
+            pendingSuggestion: null,
+            agentLogs: [log, ...s.agentLogs],
+          }))
+        }
         trackEvent('agent_message_sent', { message: message.slice(0, 80) })
       } catch (err) {
         const durationMs = Math.round(performance.now() - tStart)
@@ -413,43 +452,34 @@ export const useStore = create<FlowNoteState>()(
       }
     },
 
-    // ─── applySuggestion ────────────────────
+    // ─── applySuggestion (= キャンバス比較ビューで「確定」ボタン押下) ────
     applySuggestion: () => {
-      const { pendingSuggestion, setMarkdown, saveVersion, markdown, nodes, edges } = get()
-      if (!pendingSuggestion) return
-
-      // Snapshot current state before applying (for compare view)
-      const snapshotNodes = nodes
-      const snapshotEdges = edges
-
-      // Snapshot current state before applying
-      saveVersion('変更前の状態を保存')
-
-      const newMd = pendingSuggestion.markdown ?? markdown
-      setMarkdown(newMd, 'agent')
+      // 自動適用済みの変更を確定して比較ビューを終了する
       set({
-        pendingSuggestion: null,
-        beforeCompareNodes: snapshotNodes,
-        beforeCompareEdges: snapshotEdges,
         compareMode: false,
+        beforeCompareNodes: null,
+        beforeCompareEdges: null,
+        beforeCompareMd: null,
       })
+      trackEvent('suggestion_applied', {})
+    },
 
-      // Snapshot after applying
-      const summary = pendingSuggestion.summary.slice(0, 40)
-      const after = get()
-      const entry: VersionEntry = {
-        id: uuidv4(),
-        label: `AI: ${summary}`,
-        timestamp: new Date().toISOString(),
-        markdown: newMd,
-        nodeCount: after.nodes.length,
-        edgeCount: after.edges.length,
+    // ─── revertLastAgentChange ──────────────
+    revertLastAgentChange: () => {
+      const { beforeCompareMd, setMarkdown } = get()
+      if (!beforeCompareMd) {
+        set({ compareMode: false, beforeCompareNodes: null, beforeCompareEdges: null, beforeCompareMd: null })
+        return
       }
-      set((s) => ({ versionHistory: [entry, ...s.versionHistory].slice(0, 50) }))
-      trackEvent('suggestion_applied', { summary })
-
-      // Auto-save so applied changes survive a page reload
+      setMarkdown(beforeCompareMd, 'user')
+      set({
+        compareMode: false,
+        beforeCompareNodes: null,
+        beforeCompareEdges: null,
+        beforeCompareMd: null,
+      })
       get().saveNote()
+      trackEvent('agent_change_reverted', {})
     },
 
     // ─── saveVersion ───────────────────────
