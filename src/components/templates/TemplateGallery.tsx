@@ -171,19 +171,19 @@ function TemplateCard({
       </div>
 
       {/* Action buttons (shown on hover) */}
-      <div className="px-3 pb-3 flex gap-2 opacity-0 group-hover:opacity-100 translate-y-1 group-hover:translate-y-0 transition-all">
+      <div className="px-3 pb-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={(e) => { e.stopPropagation(); onApply() }}
-          className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-200 rounded-lg transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-xs text-zinc-200 rounded-lg transition-colors whitespace-nowrap min-w-0"
         >
-          <Play className="w-3 h-3" />
+          <Play className="w-3 h-3 shrink-0" />
           手動で開始
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); onAiStart() }}
-          className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs text-white rounded-lg transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs text-white rounded-lg transition-colors whitespace-nowrap min-w-0"
         >
-          <Bot className="w-3 h-3" />
+          <Bot className="w-3 h-3 shrink-0" />
           AIで開始
         </button>
       </div>

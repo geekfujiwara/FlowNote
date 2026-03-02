@@ -141,6 +141,28 @@ export async function agentChat(payload: {
 }
 
 // ─────────────────────────────────────────────
+// OCR 画像テキスト抽出
+// ─────────────────────────────────────────────
+
+export async function runOcr(imageDataUrl: string, mimeType: string): Promise<string> {
+  if (USE_MOCK_AGENT) {
+    await delay(1000)
+    return '（モック）OCR テキスト抽出結果：サンプルテキスト'
+  }
+  const res = await fetch(`${AGENT_API_BASE}/api/ocr`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: imageDataUrl, mimeType }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error ?? `OCR error ${res.status}`)
+  }
+  const data = await res.json()
+  return data.text ?? ''
+}
+
+// ─────────────────────────────────────────────
 // Negotiate (SignalR)
 // ─────────────────────────────────────────────
 

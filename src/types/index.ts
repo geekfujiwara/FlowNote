@@ -42,7 +42,22 @@ export interface ParsedFlow {
 // ─────────────────────────────────────────────
 
 export type AgentStatus = 'idle' | 'thinking' | 'error'
-export type ChangeSource = 'user' | 'agent' | 'remote'
+export type ChangeSource = 'user' | 'agent' | 'remote' | 'removed'
+
+export interface AttachedFile {
+  /** 元のファイル名 */
+  name: string
+  /** MIME type (e.g. "text/plain", "image/png") */
+  mimeType: string
+  /** テキストファイルは内容、画像は data URL */
+  content: string
+  /** ファイルサイズ (bytes) */
+  size: number
+  /** OCR 処理状態（画像のみ） */
+  ocrStatus?: 'loading' | 'done' | 'error'
+  /** OCR 抽出テキスト */
+  ocrText?: string
+}
 
 // ─────────────────────────────────────────────
 // Agent trace types
@@ -77,6 +92,7 @@ export interface ChatMessage {
   role: 'user' | 'agent'
   content: string
   timestamp: string
+  attachedFiles?: AttachedFile[]
   agentTrace?: AgentTraceEntry[]
   executionMs?: number
 }

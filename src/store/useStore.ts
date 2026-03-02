@@ -12,6 +12,7 @@ import type {
   FlowNodeData,
   VersionEntry,
   AgentLog,
+  AttachedFile,
 } from '@/types'
 import { parseFlowFromMarkdown } from '@/lib/flowParser'
 import { trackEvent } from '@/lib/appInsights'
@@ -72,6 +73,11 @@ export interface FlowNoteState {
   animateOnUpdate: boolean
   lastAppliedChange: LastAppliedChange | null
 
+  // Compare (AI 変更前後の diff 表示)
+  compareMode: boolean
+  beforeCompareNodes: Node<FlowNodeData>[] | null
+  beforeCompareEdges: Edge[] | null
+
   // Async flags
   isSaving: boolean
   notesLoading: boolean
@@ -92,7 +98,7 @@ export interface FlowNoteState {
   newNote: () => void
 
   // Agent / Chat
-  sendMessageToAgent: (message: string) => Promise<void>
+  sendMessageToAgent: (message: string, attachedFiles?: AttachedFile[]) => Promise<void>
   applySuggestion: () => void
   discardSuggestion: () => void
   clearChatMessages: () => void
@@ -114,6 +120,9 @@ export interface FlowNoteState {
   applyCanvasEdit: (nodes: Node<FlowNodeData>[], edges: Edge[]) => void
   setCanvasMode: (mode: CanvasMode) => void
   setSelection: (nodeIds: string[], edgeIds: string[]) => void
+
+  // Compare
+  setCompareMode: (v: boolean) => void
 
   // Realtime
   onRemoteUpdate: (noteId: string) => Promise<void>
@@ -143,6 +152,9 @@ export const useStore = create<FlowNoteState>()(
     selectedEdgeIds: [],
     animateOnUpdate: true,
     lastAppliedChange: null,
+    compareMode: false,
+    beforeCompareNodes: null,
+    beforeCompareEdges: null,
     isSaving: false,
     notesLoading: true,
     isConnected: false,
@@ -230,6 +242,9 @@ export const useStore = create<FlowNoteState>()(
         chatMessages: [],
         pendingSuggestion: null,
         lastAppliedChange: null,
+        compareMode: false,
+        beforeCompareNodes: null,
+        beforeCompareEdges: null,
       })
     },
 
@@ -276,6 +291,9 @@ export const useStore = create<FlowNoteState>()(
         chatMessages: [],
         pendingSuggestion: null,
         lastAppliedChange: null,
+        compareMode: false,
+        beforeCompareNodes: null,
+        beforeCompareEdges: null,
       })
       const { parseAndLayout } = get()
       const { nodes, edges } = parseAndLayout(DEFAULT_MARKDOWN)
@@ -288,13 +306,14 @@ export const useStore = create<FlowNoteState>()(
     },
 
     // ─── sendMessageToAgent ─────────────────
-    sendMessageToAgent: async (message) => {
+    sendMessageToAgent: async (message, attachedFiles) => {
       const { currentNote, markdown, selectedNodeIds, selectedEdgeIds } = get()
       const userMsg: ChatMessage = {
         id: uuidv4(),
         role: 'user',
         content: message,
         timestamp: new Date().toISOString(),
+        attachedFiles: attachedFiles?.length ? attachedFiles : undefined,
       }
       set((s) => ({
         chatMessages: [...s.chatMessages, userMsg],
@@ -303,15 +322,40 @@ export const useStore = create<FlowNoteState>()(
 
       const logId = uuidv4()
       const logTimestamp = new Date().toISOString()
+
+      // テキストファイルの内容をエージェントへ渡す補足コンテキストを構築
+      const textAttachments = attachedFiles?.filter(
+        (f) => !f.mimeType.startsWith('image/')
+      ) ?? []
+      // 画像のOCRテキストもエージェントへ渡す
+      const imageOcrLines = attachedFiles
+        ?.filter((f) => f.mimeType.startsWith('image/') && f.ocrText)
+        .map((f) => `【${f.name}\uff08OCR抽出）】\n${f.ocrText}`)
+        .join('\n\n') ?? ''
+
+      const attachmentContext =
+        textAttachments.length || imageOcrLines
+          ? '\n\n---\n添付ファイル:\n' +
+            textAttachments.map((f) => `【${f.name}】\n${f.content}`).join('\n\n') +
+            (imageOcrLines ? '\n\n' + imageOcrLines : '')
+          : ''
+
       const requestPayload = {
         noteId: currentNote?.id ?? '',
-        message,
+        message: message + attachmentContext,
         context: {
           markdown,
           selection: { nodeIds: selectedNodeIds, edgeIds: selectedEdgeIds },
           metadata: currentNote,
           systemPrompt: get().systemPrompt || undefined,
           templateId: get().activeTemplateId || undefined,
+          // 画像はビジョン/OCR のため content (data URL) も含める
+          attachedFiles: attachedFiles?.map((f) => ({
+            name: f.name,
+            mimeType: f.mimeType,
+            size: f.size,
+            content: f.mimeType.startsWith('image/') ? f.content : undefined,
+          })),
         },
       }
       const tStart = performance.now()
@@ -374,12 +418,21 @@ export const useStore = create<FlowNoteState>()(
       const { pendingSuggestion, setMarkdown, saveVersion, markdown, nodes, edges } = get()
       if (!pendingSuggestion) return
 
+      // Snapshot current state before applying (for compare view)
+      const snapshotNodes = nodes
+      const snapshotEdges = edges
+
       // Snapshot current state before applying
       saveVersion('変更前の状態を保存')
 
       const newMd = pendingSuggestion.markdown ?? markdown
       setMarkdown(newMd, 'agent')
-      set({ pendingSuggestion: null })
+      set({
+        pendingSuggestion: null,
+        beforeCompareNodes: snapshotNodes,
+        beforeCompareEdges: snapshotEdges,
+        compareMode: false,
+      })
 
       // Snapshot after applying
       const summary = pendingSuggestion.summary.slice(0, 40)
@@ -489,6 +542,7 @@ export const useStore = create<FlowNoteState>()(
 
     setIsConnected: (v) => set({ isConnected: v }),
     setSidebarOpen: (v) => set({ sidebarOpen: v }),
+    setCompareMode: (v) => set({ compareMode: v }),
 
     // ─── setSystemPrompt ────────────────────
     setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),

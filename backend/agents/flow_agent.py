@@ -594,6 +594,45 @@ def _parse_flow(markdown: str) -> tuple[list[dict], list[dict]]:
 
 
 # ─────────────────────────────────────────────────────────────
+# OCR エントリーポイント
+# ─────────────────────────────────────────────────────────────
+
+async def run_ocr(image_data_url: str, mime_type: str = "image/png") -> str:
+    """
+    Extract text from an image using the vision model.
+    Returns the extracted text (or a description if no text is found).
+    """
+    client, model = _get_client()
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "この画像に含まれるテキストをすべて抽出してください。"
+                            "テキストがない場合は画像の内容を簡潔に説明してください。"
+                            "余計な前置き行や説明文は不要です。"
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image_data_url,
+                            "detail": "high",
+                        },
+                    },
+                ],
+            }
+        ],
+        max_tokens=2000,
+    )
+    return response.choices[0].message.content or ""
+
+
+# ─────────────────────────────────────────────────────────────
 # Main entry point
 # ─────────────────────────────────────────────────────────────
 
@@ -633,12 +672,39 @@ async def run_flow_agent(
     else:
         combined_instructions = BASE_SYSTEM_PROMPT
 
-    user_prompt = (
+    user_prompt_text = (
         f"<current_flow_markdown>\n{markdown}\n</current_flow_markdown>\n\n"
         f"<user_request>\n{message}\n</user_request>\n\n"
         "Apply the requested changes using the flow_editor tools, "
         "then return the result as JSON."
     )
+
+    # 画像添付時は vision multipart メッセージを構築（OCR 対応）
+    attached_files = (context or {}).get("attachedFiles") or []
+    image_files = [
+        f for f in attached_files
+        if isinstance(f, dict)
+        and (f.get("mimeType") or "").startswith("image/")
+        and f.get("content")
+    ]
+
+    if image_files:
+        user_content: Any = [
+            {"type": "text", "text": user_prompt_text},
+        ]
+        for img in image_files:
+            user_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": img["content"],  # data URL (data:image/...;base64,...)
+                    "detail": "high",
+                },
+            })
+        logger.info(
+            "Vision mode: attaching %d image(s) to user message", len(image_files)
+        )
+    else:
+        user_content = user_prompt_text
 
     logger.info("Running FlowNote agent | message=%r | nodes=%d edges=%d | template=%s",
                 message, len(orig_nodes), len(orig_edges), template_id or "none")
@@ -647,7 +713,7 @@ async def run_flow_agent(
 
     messages: list = [
         {"role": "system", "content": combined_instructions},
-        {"role": "user", "content": user_prompt},
+        {"role": "user", "content": user_content},
     ]
 
     raw = ""

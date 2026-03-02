@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useStore } from '@/store/useStore'
 import { SuggestionCard } from './SuggestionCard'
 import { AgentTraceViewer } from './AgentTraceViewer'
@@ -14,9 +14,17 @@ import {
   LayoutTemplate,
   ChevronDown,
   ChevronUp,
+  Paperclip,
+  X,
+  FileText,
+  ImageIcon,
+  ScanText,
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react'
-import type { ChatMessage } from '@/types'
+import type { ChatMessage, AttachedFile } from '@/types'
 import { getTemplateById } from '@/lib/templates'
+import { runOcr } from '@/lib/mockApi'
 
 interface ChatPanelProps {
   onOpenTemplates?: () => void
@@ -34,7 +42,9 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
 
   const [input, setInput] = useState('')
   const [systemPromptOpen, setSystemPromptOpen] = useState(false)
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const activeTemplate = activeTemplateId ? getTemplateById(activeTemplateId) : null
 
@@ -53,9 +63,10 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
 
   const handleSend = () => {
     const msg = input.trim()
-    if (!msg || agentStatus === 'thinking') return
+    if ((!msg && attachedFiles.length === 0) || agentStatus === 'thinking') return
     setInput('')
-    sendMessage(msg)
+    setAttachedFiles([])
+    sendMessage(msg || '(添付ファイルを参照してください)', attachedFiles.length > 0 ? attachedFiles : undefined)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -63,6 +74,61 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
       e.preventDefault()
       handleSend()
     }
+  }
+
+  const ACCEPTED_TYPES = '.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css,.xml,.yaml,.yml,image/*'
+
+  /** 添付ファイルの一池を名前+contentで特实して更新するhelper */
+  const updateFile = useCallback(
+    (name: string, content: string, patch: Partial<AttachedFile>) =>
+      setAttachedFiles((prev) =>
+        prev.map((f) =>
+          f.name === name && f.content === content ? { ...f, ...patch } : f
+        )
+      ),
+    []
+  )
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
+
+    files.forEach((file) => {
+      const isImage = file.type.startsWith('image/')
+      const reader = new FileReader()
+
+      reader.onload = (ev) => {
+        const content = ev.target?.result as string
+        const newFile: AttachedFile = {
+          name: file.name,
+          mimeType: file.type || 'text/plain',
+          content,
+          size: file.size,
+          ocrStatus: isImage ? 'loading' : undefined,
+        }
+        setAttachedFiles((prev) => [...prev, newFile])
+
+        // 画像添付直後にOCRを即時起動
+        if (isImage) {
+          runOcr(content, file.type)
+            .then((ocrText) => updateFile(file.name, content, { ocrStatus: 'done', ocrText }))
+            .catch(() => updateFile(file.name, content, { ocrStatus: 'error' }))
+        }
+      }
+
+      if (isImage) {
+        reader.readAsDataURL(file)
+      } else {
+        reader.readAsText(file)
+      }
+    })
+
+    // リセットして同じファイルを再選択できるようにする
+    e.target.value = ''
+  }
+
+  const removeFile = (index: number) => {
+    setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
   return (
@@ -165,7 +231,80 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
               </div>
             )}
 
+            {/* 添付ファイルチップのプレビュー */}
+            {attachedFiles.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {attachedFiles.map((f, i) => (
+                  <div
+                    key={i}
+                    className="flex flex-col gap-0.5 bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1 text-xs text-zinc-300 max-w-full"
+                  >
+                    {/* 1行目: アイコン + ファイル名 + OCR状態 + 小サイズ + 削除 */}
+                    <div className="flex items-center gap-1">
+                      {f.mimeType.startsWith('image/')
+                        ? <ImageIcon className="w-3 h-3 text-sky-400 shrink-0" />
+                        : <FileText className="w-3 h-3 text-amber-400 shrink-0" />
+                      }
+                      <span className="truncate max-w-[120px]" title={f.name}>{f.name}</span>
+                      <span className="text-zinc-600">({_formatSize(f.size)})</span>
+                      {/* OCR ステータスアイコン */}
+                      {f.ocrStatus === 'loading' && (
+                        <Loader2 className="w-3 h-3 text-sky-400 animate-spin ml-0.5 shrink-0" aria-label="OCR処理中..." />
+                      )}
+                      {f.ocrStatus === 'done' && (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400 ml-0.5 shrink-0" aria-label="OCR完了" />
+                      )}
+                      {f.ocrStatus === 'error' && (
+                        <AlertCircle className="w-3 h-3 text-red-400 ml-0.5 shrink-0" aria-label="OCR失敗" />
+                      )}
+                      <button
+                        onClick={() => removeFile(i)}
+                        className="ml-auto rounded hover:text-red-400 transition-colors"
+                        title="削除"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                    {/* OCR 抽出テキストの先頭プレビュー */}
+                    {f.ocrStatus === 'loading' && (
+                      <div className="flex items-center gap-1 text-zinc-500 pl-4">
+                        <ScanText className="w-2.5 h-2.5" />
+                        <span>OCR 読み込み中...</span>
+                      </div>
+                    )}
+                    {f.ocrStatus === 'done' && f.ocrText && (
+                      <div
+                        className="pl-4 text-zinc-500 leading-snug max-w-[200px] truncate"
+                        title={f.ocrText}
+                      >
+                        {f.ocrText.slice(0, 60)}{f.ocrText.length > 60 ? '…' : ''}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-end gap-2">
+              {/* File attach button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={!currentNote || agentStatus === 'thinking'}
+                title="ファイルを添付"
+                className="p-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 disabled:opacity-40 transition-colors shrink-0 self-end"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ACCEPTED_TYPES}
+                aria-label="ファイルを添付"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -177,8 +316,8 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
               />
               <button
                 onClick={handleSend}
-                disabled={!input.trim() || !currentNote || agentStatus === 'thinking'}
-                className="p-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 disabled:opacity-40 text-white rounded-lg transition-colors shrink-0"
+                disabled={(!input.trim() && attachedFiles.length === 0) || !currentNote || agentStatus === 'thinking'}
+                className="p-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 disabled:opacity-40 text-white rounded-lg transition-colors shrink-0 self-end"
                 title="送信 (Enter)"
               >
                 {agentStatus === 'thinking'
@@ -187,11 +326,17 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
                 }
               </button>
             </div>
-            <p className="text-xs text-zinc-600 mt-1.5">Enter で送信 / Shift+Enter で改行</p>
+            <p className="text-xs text-zinc-600 mt-1.5">Enter で送信 / Shift+Enter で改行 / 📎 でファイル添付</p>
           </div>
         </>
     </div>
   )
+}
+
+function _formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {
@@ -224,6 +369,32 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           }`}
         >
           {message.content}
+          {/* 添付ファイル一覧 */}
+          {message.attachedFiles && message.attachedFiles.length > 0 && (
+            <div className={`mt-2 flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
+              {message.attachedFiles.map((f, i) =>
+                f.mimeType.startsWith('image/') ? (
+                  <img
+                    key={i}
+                    src={f.content}
+                    alt={f.name}
+                    title={f.name}
+                    className="max-w-[180px] max-h-[120px] rounded-md object-cover border border-white/20"
+                  />
+                ) : (
+                  <div
+                    key={i}
+                    className="flex items-center gap-1 bg-white/10 rounded px-2 py-0.5 text-xs"
+                    title={f.name}
+                  >
+                    <FileText className="w-3 h-3 shrink-0" />
+                    <span className="truncate max-w-[120px]">{f.name}</span>
+                    <span className="opacity-60">({_formatSize(f.size)})</span>
+                  </div>
+                )
+              )}
+            </div>
+          )}
         </div>
         {/* Agent trace viewer – only for agent messages with trace data */}
         {!isUser && message.agentTrace !== undefined && (

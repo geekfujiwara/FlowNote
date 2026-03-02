@@ -10,6 +10,8 @@ export const CustomNode = memo(function CustomNode({ data, selected }: NodeProps
   const highlightClass = isChanged
     ? changeSource === 'agent'
       ? 'ring-2 ring-purple-400 animate-pulse-once'
+      : changeSource === 'removed'
+      ? 'ring-2 ring-rose-400 opacity-60'
       : changeSource === 'remote'
       ? 'ring-2 ring-sky-400 animate-pulse-once'
       : 'ring-2 ring-indigo-400 animate-pulse-once'

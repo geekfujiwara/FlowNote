@@ -97,8 +97,13 @@ body,
   stroke-width: 2.5 !important;
 }
 
+.react-flow__edge-textbg {
+  fill: #27272a !important;   /* zinc-800 */
+  rx: 4;
+}
+
 .react-flow__edge-text {
-  fill: #a1a1aa !important;
+  fill: #e4e4e7 !important;   /* zinc-200 – 白背景なしでも読みやすい明度 */
   font-size: 11px !important;
 }
 

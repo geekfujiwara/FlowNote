@@ -303,6 +303,39 @@ async def agent_chat(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # ---------------------------------------------------------------
+# POST /api/ocr
+# ---------------------------------------------------------------
+
+@app.route(route="ocr", methods=["POST", "OPTIONS"])
+async def ocr_image(req: func.HttpRequest) -> func.HttpResponse:
+    """Extract text from a base64-encoded image using the vision model."""
+    if req.method == "OPTIONS":
+        return _preflight()
+
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return _error("Invalid JSON body")
+
+    image = (payload.get("image") or "").strip()
+    mime_type = payload.get("mimeType") or "image/png"
+
+    if not image:
+        return _error("'image' is required")
+
+    try:
+        from agents.flow_agent import run_ocr
+        text = await run_ocr(image, mime_type)
+        return _json_response({"text": text})
+    except RuntimeError as exc:
+        logger.error("OCR config error: %s", exc)
+        return _error(str(exc), 500)
+    except Exception as exc:
+        logger.exception("OCR error")
+        return _error(f"OCR error: {exc}", 500)
+
+
+# ---------------------------------------------------------------
 # GET /api/agent/health
 # ---------------------------------------------------------------
 

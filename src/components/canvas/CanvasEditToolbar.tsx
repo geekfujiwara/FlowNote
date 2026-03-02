@@ -10,6 +10,7 @@ import {
   GitBranch,
   LayoutDashboard,
   Download,
+  SplitSquareHorizontal,
 } from 'lucide-react'
 import type { FlowNodeData } from '@/types'
 import type { Node } from '@xyflow/react'
@@ -26,6 +27,9 @@ export function CanvasEditToolbar() {
   const edges = useStore((s) => s.edges)
   const markdown = useStore((s) => s.markdown)
   const currentNote = useStore((s) => s.currentNote)
+  const compareMode = useStore((s) => s.compareMode)
+  const setCompareMode = useStore((s) => s.setCompareMode)
+  const beforeCompareNodes = useStore((s) => s.beforeCompareNodes)
 
   const { zoomIn, zoomOut, fitView, getNodes, getEdges } = useReactFlow()
 
@@ -109,6 +113,19 @@ export function CanvasEditToolbar() {
         title="SVGとして書き出し"
         onClick={handleExportSvg}
       />
+
+      {/* Compare view — only shown after an AI suggestion has been applied */}
+      {beforeCompareNodes && (
+        <>
+          <div className="h-px bg-zinc-700 my-0.5" />
+          <ToolBtn
+            icon={<SplitSquareHorizontal className="w-3.5 h-3.5" />}
+            title={compareMode ? '比較ビューを閉じる' : 'AI変更の前後比較'}
+            active={compareMode}
+            onClick={() => setCompareMode(!compareMode)}
+          />
+        </>
+      )}
     </div>
   )
 }
