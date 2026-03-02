@@ -94,45 +94,101 @@ interface ReadonlyFlowPanelProps {
   labelColor: string
 }
 
+/**
+ * Compute a viewport that fits all nodes inside a container without relying on
+ * DOM measurement or ReactFlow's fitView (which can fail before nodes are measured).
+ * NODE_W / NODE_H must match the values used in applyDagreLayout.
+ */
+function computeViewportForNodes(
+  nodes: Node<FlowNodeData>[],
+  containerW: number,
+  containerH: number,
+  padding = 0.15
+): { x: number; y: number; zoom: number } {
+  if (!nodes.length) return { x: 0, y: 0, zoom: 1 }
+  const NODE_W = 180
+  const NODE_H = 60
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const n of nodes) {
+    const w = (n.width as number | undefined) ?? NODE_W
+    const h = (n.height as number | undefined) ?? NODE_H
+    minX = Math.min(minX, n.position.x)
+    minY = Math.min(minY, n.position.y)
+    maxX = Math.max(maxX, n.position.x + w)
+    maxY = Math.max(maxY, n.position.y + h)
+  }
+  const flowW = maxX - minX
+  const flowH = maxY - minY
+  const availW = containerW * (1 - padding * 2)
+  const availH = containerH * (1 - padding * 2)
+  const zoom = Math.min(availW / flowW, availH / flowH, 1.5)
+  const x = containerW / 2 - (minX + flowW / 2) * zoom
+  const y = containerH / 2 - (minY + flowH / 2) * zoom
+  return { x, y, zoom }
+}
+
 function ReadonlyFlowPanel({ nodes, edges, label, labelColor }: ReadonlyFlowPanelProps) {
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [viewport, setViewport] = React.useState<{ x: number; y: number; zoom: number } | null>(null)
   const miniMapStyle = { backgroundColor: '#18181b' }
+
+  // Compute viewport once the container has been sized by the browser
+  React.useLayoutEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const { width, height } = el.getBoundingClientRect()
+    if (width > 0 && height > 0) {
+      setViewport(computeViewportForNodes(nodes, width, height))
+    } else {
+      // Container not yet painted – wait one frame
+      const id = requestAnimationFrame(() => {
+        const r = el.getBoundingClientRect()
+        setViewport(computeViewportForNodes(nodes, r.width || 600, r.height || 700))
+      })
+      return () => cancelAnimationFrame(id)
+    }
+  }, [nodes])
+
   return (
-    <div className="flex-1 relative bg-zinc-950 border-r border-zinc-700 last:border-r-0 overflow-hidden">
+    <div
+      ref={containerRef}
+      className="flex-1 relative bg-zinc-950 border-r border-zinc-700 last:border-r-0 overflow-hidden"
+    >
       {/* Panel header label */}
       <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full text-xs font-semibold text-white shadow-lg ${labelColor}`}>
         {label}
       </div>
-      <ReactFlowProvider>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          zoomOnDoubleClick={false}
-          fitView
-          fitViewOptions={{ padding: 0.2, includeHiddenNodes: true }}
-          nodeOrigin={[0, 0]}
-          className="bg-zinc-950"
-        >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3f3f46" />
-          <Controls className="!bg-zinc-800 !border-zinc-700" showInteractive={false} />
-          <MiniMap
-            style={miniMapStyle}
-            nodeColor={(n) => {
-              const data = n.data as FlowNodeData
-              switch (data?.nodeType) {
-                case 'input':    return '#6366f1'
-                case 'output':   return '#10b981'
-                case 'selector': return '#f59e0b'
-                default:         return '#52525b'
-              }
-            }}
-            maskColor="rgba(0,0,0,0.4)"
-          />
-        </ReactFlow>
-      </ReactFlowProvider>
+      {viewport && (
+        <ReactFlowProvider>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            zoomOnDoubleClick={false}
+            defaultViewport={viewport}
+            className="bg-zinc-950"
+          >
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3f3f46" />
+            <Controls className="!bg-zinc-800 !border-zinc-700" showInteractive={false} />
+            <MiniMap
+              style={miniMapStyle}
+              nodeColor={(n) => {
+                const data = n.data as FlowNodeData
+                switch (data?.nodeType) {
+                  case 'input':    return '#6366f1'
+                  case 'output':   return '#10b981'
+                  case 'selector': return '#f59e0b'
+                  default:         return '#52525b'
+                }
+              }}
+              maskColor="rgba(0,0,0,0.4)"
+            />
+          </ReactFlow>
+        </ReactFlowProvider>
+      )}
     </div>
   )
 }
