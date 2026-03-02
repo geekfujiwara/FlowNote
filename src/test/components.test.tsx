@@ -207,14 +207,10 @@ describe('SuggestionCard', () => {
     expect(screen.getByText('-1')).toBeInTheDocument()
   })
 
-  it('「適用」ボタンクリックで applySuggestion が呼ばれる', async () => {
-    act(() => {
-      useStore.setState({ pendingSuggestion: MOCK_SUGGESTION })
-    })
-    const applySpy = vi.spyOn(useStore.getState(), 'applySuggestion')
+  it('「適用」ボタンは表示されない（自動適用のため）', () => {
     render(<SuggestionCard suggestion={MOCK_SUGGESTION} />)
-    await userEvent.click(screen.getByText('適用'))
-    expect(applySpy).toHaveBeenCalledOnce()
+    // The apply button was removed because suggestions are now auto-applied
+    expect(screen.queryByText('適用')).not.toBeInTheDocument()
   })
 
   it('「✕」ボタンクリックで discardSuggestion が呼ばれる', async () => {

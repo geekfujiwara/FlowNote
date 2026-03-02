@@ -19,6 +19,10 @@ function resetStore() {
     selectedEdgeIds: [],
     animateOnUpdate: true,
     lastAppliedChange: null,
+    compareMode: false,
+    beforeCompareNodes: null,
+    beforeCompareEdges: null,
+    beforeCompareMd: null,
     isSaving: false,
     isConnected: false,
     sidebarOpen: true,
@@ -173,36 +177,36 @@ describe('useStore – canvasMode / selection', () => {
 describe('useStore – suggestion (agent)', () => {
   beforeEach(resetStore)
 
-  it('applySuggestion で pendingSuggestion が null になる', () => {
+  it('applySuggestion で compareMode が false になる（比較ビュー終了）', () => {
     act(() => {
       useStore.setState({
-        pendingSuggestion: {
-          suggestionId: 'sg1',
-          markdown: '# Updated\n```flow\n[a] A\n```',
-          summary: 'テスト提案',
-          impacts: { nodesDelta: 1, edgesDelta: 0, changedNodeIds: [], changedEdgeIds: [] },
-        },
+        compareMode: true,
+        beforeCompareMd: '# Before\n```flow\n[a] A\n```',
+        beforeCompareNodes: [],
+        beforeCompareEdges: [],
       })
       useStore.getState().applySuggestion()
     })
-    expect(useStore.getState().pendingSuggestion).toBeNull()
+    expect(useStore.getState().compareMode).toBe(false)
+    expect(useStore.getState().beforeCompareMd).toBeNull()
+    expect(useStore.getState().beforeCompareNodes).toBeNull()
   })
 
-  it('applySuggestion で markdown が suggestion の値に更新される', () => {
-    const newMd = '# Updated\n```flow\n[x] Updated\n```'
+  it('revertLastAgentChange で beforeCompareMd の内容に戻る', () => {
+    const prevMd = '# Before\n```flow\n[a] A\n```'
     act(() => {
+      useStore.getState().setMarkdown('# After\n```flow\n[b] B\n```', 'agent')
       useStore.setState({
-        pendingSuggestion: {
-          suggestionId: 'sg1',
-          markdown: newMd,
-          summary: '提案',
-          impacts: { nodesDelta: 0, edgesDelta: 0, changedNodeIds: [], changedEdgeIds: [] },
-        },
+        compareMode: true,
+        beforeCompareMd: prevMd,
+        beforeCompareNodes: [],
+        beforeCompareEdges: [],
       })
-      useStore.getState().applySuggestion()
+      useStore.getState().revertLastAgentChange()
     })
-    expect(useStore.getState().markdown).toBe(newMd)
-    expect(useStore.getState().lastAppliedChange?.source).toBe('agent')
+    expect(useStore.getState().markdown).toBe(prevMd)
+    expect(useStore.getState().compareMode).toBe(false)
+    expect(useStore.getState().beforeCompareMd).toBeNull()
   })
 
   it('discardSuggestion で pendingSuggestion が null になる', () => {
@@ -249,13 +253,16 @@ describe('useStore – sendMessageToAgent', () => {
     expect(useStore.getState().agentStatus).toBe('idle')
   })
 
-  it('"追加" メッセージで pendingSuggestion が設定される', async () => {
+  it('"追加" メッセージで自動適用されて compareMode が true になる', async () => {
     act(() => useStore.getState().newNote())
     await act(async () => {
       await useStore.getState().sendMessageToAgent('ノードを追加して')
     })
-    expect(useStore.getState().pendingSuggestion).not.toBeNull()
-    expect(useStore.getState().pendingSuggestion!.impacts.nodesDelta).toBeGreaterThan(0)
+    // Suggestions are now auto-applied; pendingSuggestion stays null
+    expect(useStore.getState().pendingSuggestion).toBeNull()
+    // Compare view is shown automatically
+    expect(useStore.getState().compareMode).toBe(true)
+    expect(useStore.getState().beforeCompareMd).not.toBeNull()
   })
 })
 
