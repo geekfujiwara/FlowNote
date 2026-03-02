@@ -82,7 +82,7 @@ describe('Sidebar', () => {
   it('新規ボタンをクリックすると newNote が呼ばれる', async () => {
     const spy = vi.spyOn(useStore.getState(), 'newNote')
     render(<Sidebar />)
-    await userEvent.click(screen.getByTitle('新しいノートを作成'))
+    await userEvent.click(screen.getByTitle('新しいフローを作成'))
     expect(spy).toHaveBeenCalledOnce()
   })
 
@@ -374,28 +374,32 @@ describe('TemplateGallery', () => {
     expect(screen.getByText('AIシステムプロンプト')).toBeInTheDocument()
   })
 
-  it('「手動で開始」ボタンで applyTemplate が呼ばれ onClose が呼ばれる', async () => {
+  it('「テンプレートで上書き」ボタンで applyTemplate が呼ばれ onClose が呼ばれる', async () => {
     const onClose = vi.fn()
     const applyTemplate = vi.spyOn(useStore.getState(), 'applyTemplate')
     render(<TemplateGallery onClose={onClose} />)
     // Open preview for fishbone
     await userEvent.click(screen.getAllByText('フィッシュボーンチャート')[0])
-    // Click 手動で開始 in the detail pane
-    const manualBtns = screen.getAllByText('手動で開始')
-    await userEvent.click(manualBtns[manualBtns.length - 1]) // use the one in detail pane
+    // Click テンプレートで上書き in the detail pane
+    const overwriteBtns = screen.getAllByText('テンプレートで上書き')
+    await userEvent.click(overwriteBtns[overwriteBtns.length - 1])
     expect(applyTemplate).toHaveBeenCalledWith('fishbone')
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it('「AIデザインで開始」ボタンで onAiStart コールバックが呼ばれる', async () => {
+  it('プロンプト例クリックで applyTemplate は呼ばれず onRunPrompt コールバックが呼ばれる', async () => {
     const onClose = vi.fn()
-    const onAiStart = vi.fn()
-    render(<TemplateGallery onClose={onClose} onAiStart={onAiStart} />)
+    const onRunPrompt = vi.fn()
+    const applyTemplate = vi.spyOn(useStore.getState(), 'applyTemplate')
+    render(<TemplateGallery onClose={onClose} onRunPrompt={onRunPrompt} />)
     // Open preview for fishbone
     await userEvent.click(screen.getAllByText('フィッシュボーンチャート')[0])
-    const aiStartBtns = screen.getAllByText('AIデザインで開始')
-    await userEvent.click(aiStartBtns[aiStartBtns.length - 1])
-    expect(onAiStart).toHaveBeenCalledWith('fishbone', expect.any(String))
+    const fishbone = TEMPLATES.find((t) => t.id === 'fishbone')!
+    // Click the first prompt suggestion
+    await userEvent.click(screen.getByText(`💬 ${fishbone.userPromptSuggestions[0]}`))
+    // applyTemplate should NOT have been called
+    expect(applyTemplate).not.toHaveBeenCalled()
+    expect(onRunPrompt).toHaveBeenCalledWith('fishbone', fishbone.userPromptSuggestions[0])
     expect(onClose).toHaveBeenCalledOnce()
   })
 

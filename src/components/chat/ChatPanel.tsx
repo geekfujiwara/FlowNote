@@ -43,8 +43,19 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
   const [input, setInput] = useState('')
   const [systemPromptOpen, setSystemPromptOpen] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
+  const [ocrTick, setOcrTick] = useState(0)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // OCR 処理中は 100ms ごとに再レンダー（経過時間表示用）
+  const isOcrRunning = attachedFiles.some((f) => f.ocrStatus === 'loading')
+  useEffect(() => {
+    if (!isOcrRunning) return
+    const id = setInterval(() => setOcrTick((n) => n + 1), 100)
+    return () => clearInterval(id)
+  }, [isOcrRunning])
+  // ocrTick は再レンダートリガーのみ使用
+  void ocrTick
 
   const activeTemplate = activeTemplateId ? getTemplateById(activeTemplateId) : null
 
@@ -63,7 +74,7 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
 
   const handleSend = () => {
     const msg = input.trim()
-    if ((!msg && attachedFiles.length === 0) || agentStatus === 'thinking') return
+    if ((!msg && attachedFiles.length === 0) || agentStatus === 'thinking' || isOcrRunning) return
     setInput('')
     setAttachedFiles([])
     sendMessage(msg || '(添付ファイルを参照してください)', attachedFiles.length > 0 ? attachedFiles : undefined)
@@ -105,6 +116,7 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
           content,
           size: file.size,
           ocrStatus: isImage ? 'loading' : undefined,
+          ocrStartedAt: isImage ? Date.now() : undefined,
         }
         setAttachedFiles((prev) => [...prev, newFile])
 
@@ -237,7 +249,9 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
                 {attachedFiles.map((f, i) => (
                   <div
                     key={i}
-                    className="flex flex-col gap-0.5 bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1 text-xs text-zinc-300 max-w-full"
+                    className={`flex flex-col gap-0.5 bg-zinc-800 border border-zinc-700 rounded-md px-2 py-1 text-xs text-zinc-300 max-w-full${
+                      f.ocrStatus === 'loading' ? ' ocr-loading-chip' : ''
+                    }`}
                   >
                     {/* 1行目: アイコン + ファイル名 + OCR状態 + 小サイズ + 削除 */}
                     <div className="flex items-center gap-1">
@@ -265,11 +279,17 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
                         <X className="w-3 h-3" />
                       </button>
                     </div>
-                    {/* OCR 抽出テキストの先頭プレビュー */}
+                    {/* OCR 読み込み中: グラデーションテキストと経過時間 */}
                     {f.ocrStatus === 'loading' && (
-                      <div className="flex items-center gap-1 text-zinc-500 pl-4">
-                        <ScanText className="w-2.5 h-2.5" />
-                        <span>OCR 読み込み中...</span>
+                      <div className="flex items-center gap-1.5 pl-4 pb-0.5">
+                        <ScanText className="w-2.5 h-2.5 text-sky-400 shrink-0" />
+                        <span className="ocr-gradient-text font-medium">OCR 読み込み中</span>
+                        <span className="text-sky-400 tabular-nums ml-auto pr-0.5">
+                          {f.ocrStartedAt
+                            ? `${((Date.now() - f.ocrStartedAt) / 1000).toFixed(1)}s`
+                            : '...'
+                          }
+                        </span>
                       </div>
                     )}
                     {f.ocrStatus === 'done' && f.ocrText && (
@@ -316,9 +336,9 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
               />
               <button
                 onClick={handleSend}
-                disabled={(!input.trim() && attachedFiles.length === 0) || !currentNote || agentStatus === 'thinking'}
+                disabled={(!input.trim() && attachedFiles.length === 0) || !currentNote || agentStatus === 'thinking' || isOcrRunning}
                 className="p-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-700 disabled:opacity-40 text-white rounded-lg transition-colors shrink-0 self-end"
-                title="送信 (Enter)"
+                title={isOcrRunning ? 'OCR 処理が完了するまでお待ちください' : '送信 (Enter)'}
               >
                 {agentStatus === 'thinking'
                   ? <Loader2 className="w-4 h-4 animate-spin" />

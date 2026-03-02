@@ -412,3 +412,47 @@ body,
   image-rendering: pixelated;
   animation: pixelBarBlink 1.0s steps(2, end) infinite;
 }
+
+/* ─────────────────────────────────────────────
+   OCR グラデーション インジケーター
+───────────────────────────────────────────── */
+
+@keyframes ocr-sweep {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* チップ下部のグラデーションマー + チップ内のグラデーションテキスト */
+.ocr-loading-chip {
+  position: relative;
+  overflow: hidden;
+}
+.ocr-loading-chip::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    #7c3aed 20%,
+    #4f46e5 40%,
+    #0ea5e9 60%,
+    #a855f7 80%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: ocr-sweep 1.4s linear infinite;
+}
+
+.ocr-gradient-text {
+  background: linear-gradient(90deg, #a78bfa, #38bdf8, #818cf8, #a78bfa);
+  background-size: 300% 100%;
+  animation: ocr-sweep 2s linear infinite;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}

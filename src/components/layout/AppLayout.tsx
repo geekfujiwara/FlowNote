@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { useStore } from '@/store/useStore'
 import { Sidebar } from '@/components/sidebar/Sidebar'
 import { MarkdownEditor } from '@/components/editor/MarkdownEditor'
@@ -22,27 +22,49 @@ export function AppLayout() {
   const isConnected = useStore((s) => s.isConnected)
   const isSaving = useStore((s) => s.isSaving)
   const currentNote = useStore((s) => s.currentNote)
+  const newNote = useStore((s) => s.newNote)
+  const renameNote = useStore((s) => s.renameNote)
   const sendMessageToAgent = useStore((s) => s.sendMessageToAgent)
   const [chatOpen, setChatOpen] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('agent')
   const [rightPanel, setRightPanel] = useState<'chat' | 'history' | 'log'>('chat')
   const [analyticsOpen, setAnalyticsOpen] = useState(false)
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [editTitleValue, setEditTitleValue] = useState('')
+  const titleInputRef = useRef<HTMLInputElement>(null)
   const { accounts } = useMsal()
 
   const userName = USE_MOCK ? 'Demo User' : (accounts[0]?.name ?? accounts[0]?.username ?? 'User')
   const isAgentMode = viewMode === 'agent'
 
-  /** Called by TemplateGallery when user clicks "AIデザインで開始" */
-  const handleTemplateAiStart = (_templateId: string, prompt: string) => {
+  /** Called by TemplateGallery when user selects a prompt suggestion.
+   *  The template is NOT applied – the prompt runs on the current flow. */
+  const handleTemplateRunPrompt = (_templateId: string, prompt: string) => {
     // Switch to agent mode so the chat is visible
     setViewMode('agent')
     setRightPanel('chat')
-    // Small delay to let the template state settle before sending
+    // Small delay to let the gallery close animation finish
     setTimeout(() => {
       sendMessageToAgent(prompt)
     }, 150)
   }
+
+  const startTitleEdit = () => {
+    if (!currentNote) return
+    setEditTitleValue(currentNote.title)
+    setEditingTitle(true)
+    setTimeout(() => titleInputRef.current?.select(), 50)
+  }
+
+  const commitTitleEdit = () => {
+    if (currentNote && editTitleValue.trim() && editTitleValue.trim() !== currentNote.title) {
+      renameNote(currentNote.id, editTitleValue.trim())
+    }
+    setEditingTitle(false)
+  }
+
+  const cancelTitleEdit = () => setEditingTitle(false)
 
   return (
     <div className="h-screen flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
@@ -67,7 +89,30 @@ export function AppLayout() {
           {currentNote && (
             <>
               <span className="text-zinc-600">/</span>
-              <span className="text-sm text-zinc-300 max-w-48 truncate">{currentNote.title}</span>
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  value={editTitleValue}
+                  onChange={(e) => setEditTitleValue(e.target.value)}
+                  onBlur={commitTitleEdit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitTitleEdit()
+                    if (e.key === 'Escape') cancelTitleEdit()
+                  }}
+                  autoFocus
+                  aria-label="フロー名"
+                  placeholder="フロー名を入力"
+                  className="text-sm bg-zinc-800 text-zinc-100 px-2 py-0.5 rounded border border-indigo-500 outline-none max-w-48"
+                />
+              ) : (
+                <span
+                  className="text-sm text-zinc-300 max-w-48 truncate cursor-pointer hover:text-white hover:underline underline-offset-2 decoration-dotted"
+                  onDoubleClick={startTitleEdit}
+                  title="ダブルクリックで名前変更"
+                >
+                  {currentNote.title}
+                </span>
+              )}
             </>
           )}
           {isSaving && (
@@ -168,7 +213,7 @@ export function AppLayout() {
                 sidebarOpen ? 'w-64' : 'w-0'
               }`}
             >
-              <Sidebar />
+              <Sidebar onNewNote={() => setTemplateGalleryOpen(true)} />
             </div>
 
             {/* Editor pane */}
@@ -267,7 +312,7 @@ export function AppLayout() {
                     </button>
                   </div>
                   <div className="flex-1 overflow-hidden">
-                    <Sidebar />
+                    <Sidebar onNewNote={() => { setSidebarOpen(false); setTemplateGalleryOpen(true) }} />
                   </div>
                 </div>
               </>
@@ -284,7 +329,8 @@ export function AppLayout() {
       {templateGalleryOpen && (
         <TemplateGallery
           onClose={() => setTemplateGalleryOpen(false)}
-          onAiStart={handleTemplateAiStart}
+          onRunPrompt={handleTemplateRunPrompt}
+          onBlankCreate={newNote}
         />
       )}
     </div>

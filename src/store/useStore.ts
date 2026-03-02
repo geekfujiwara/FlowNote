@@ -98,6 +98,7 @@ export interface FlowNoteState {
   loadNote: (id: string) => Promise<void>
   saveNote: () => Promise<void>
   deleteNote: (id: string) => Promise<void>
+  renameNote: (id: string, title: string) => Promise<void>
   newNote: () => void
 
   // Agent / Chat
@@ -285,6 +286,15 @@ export const useStore = create<FlowNoteState>()(
       await get().listNotes()
     },
 
+    // ─── renameNote ─────────────────────────
+    renameNote: async (id, title) => {
+      await mockApi.renameNote(id, title)
+      set((s) => ({
+        notes: s.notes.map((n) => n.id === id ? { ...n, title } : n),
+        currentNote: s.currentNote?.id === id ? { ...s.currentNote, title } : s.currentNote,
+      }))
+    },
+
     // ─── newNote ────────────────────────────
     newNote: () => {
       const id = uuidv4()
@@ -424,6 +434,19 @@ export const useStore = create<FlowNoteState>()(
             compareMode: true,
             versionHistory: [vEntry, ...s.versionHistory].slice(0, 50),
           }))
+          // Auto-title: if the note has a default/generic title, use the markdown H1
+          const noteAfterSet = get().currentNote
+          const isGenericTitle = noteAfterSet && (
+            noteAfterSet.title === '新しいノート' ||
+            noteAfterSet.title === '新しいフロー'
+          )
+          if (isGenericTitle && noteAfterSet) {
+            const h1Match = newMd.match(/^#\s+(.+)$/m)
+            const autoTitle = h1Match?.[1]?.trim()
+            if (autoTitle && autoTitle !== '新しいフロー') {
+              get().renameNote(noteAfterSet.id, autoTitle)
+            }
+          }
           get().saveNote()
         } else {
           // No markdown change — just show the agent message without compare view

@@ -10,12 +10,18 @@ import {
   Loader2,
 } from 'lucide-react'
 
-export function Sidebar() {
+interface Props {
+  /** Called when user clicks "新規作成". If not provided, falls back to store.newNote(). */
+  onNewNote?: () => void
+}
+
+export function Sidebar({ onNewNote }: Props) {
   const notes = useStore((s) => s.notes)
   const currentNote = useStore((s) => s.currentNote)
   const newNote = useStore((s) => s.newNote)
   const loadNote = useStore((s) => s.loadNote)
   const deleteNote = useStore((s) => s.deleteNote)
+  const renameNote = useStore((s) => s.renameNote)
   const notesLoading = useStore((s) => s.notesLoading)
 
   const [search, setSearch] = useState('')
@@ -27,7 +33,11 @@ export function Sidebar() {
   )
 
   const handleNew = () => {
-    newNote()
+    if (onNewNote) {
+      onNewNote()
+    } else {
+      newNote()
+    }
   }
 
   const handleLoad = async (id: string) => {
@@ -54,7 +64,7 @@ export function Sidebar() {
         <button
           onClick={handleNew}
           className="p-1.5 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-indigo-300 transition-colors"
-          title="新しいノートを作成"
+          title="新しいフローを作成"
         >
           <FilePlus2 className="w-4 h-4" />
         </button>
@@ -84,10 +94,8 @@ export function Sidebar() {
 
       {/* Note list */}
       <div className="flex-1 overflow-y-auto py-1 space-y-0.5 px-1">
-        {/* ノート一覧の初回読込中：16bitアニメーション */}
         {notesLoading && <PixelSpriteLoader />}
 
-        {/* 個別ノート選択時のローディング */}
         {!notesLoading && loading && (
           <div className="flex justify-center py-4">
             <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
@@ -119,6 +127,7 @@ export function Sidebar() {
             isActive={currentNote?.id === note.id}
             onSelect={() => handleLoad(note.id)}
             onDelete={() => deleteNote(note.id)}
+            onRename={(title) => renameNote(note.id, title)}
           />
         ))}
       </div>

@@ -57,6 +57,8 @@ export interface AttachedFile {
   ocrStatus?: 'loading' | 'done' | 'error'
   /** OCR 抽出テキスト */
   ocrText?: string
+  /** OCR 開始時刻（Date.now()） */
+  ocrStartedAt?: number
 }
 
 // ─────────────────────────────────────────────

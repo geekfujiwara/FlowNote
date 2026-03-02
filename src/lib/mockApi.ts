@@ -106,6 +106,21 @@ export async function deleteNote(id: string): Promise<void> {
   })
 }
 
+export async function renameNote(id: string, title: string): Promise<void> {
+  if (USE_MOCK) {
+    await delay()
+    const all = getAllNotes()
+    if (all[id]) {
+      all[id] = { ...all[id], title, updatedAt: new Date().toISOString() }
+      setAllNotes(all)
+    }
+    return
+  }
+  // Real backend: reuse the save endpoint with the existing markdown
+  const existing = await loadNote(id)
+  await saveNote({ id, title, markdown: existing.markdown, tags: existing.tags })
+}
+
 // ─────────────────────────────────────────────
 // Agent chat
 // ─────────────────────────────────────────────
