@@ -7,6 +7,7 @@ import {
   MiniMap,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   addEdge,
   getBezierPath,
   type Connection,
@@ -84,6 +85,125 @@ function AnimatedConnectionLine({
   )
 }
 
+// ── Readonly flow panel (for compare view) ──────────────────────────────────
+interface ReadonlyFlowPanelProps {
+  nodes: Node<FlowNodeData>[]
+  edges: Edge[]
+  label: string
+  labelColor: string
+}
+
+function ReadonlyFlowPanel({ nodes, edges, label, labelColor }: ReadonlyFlowPanelProps) {
+  const miniMapStyle = { backgroundColor: '#18181b' }
+  return (
+    <div className="flex-1 relative bg-zinc-950 border-r border-zinc-700 last:border-r-0 overflow-hidden">
+      {/* Panel header label */}
+      <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full text-xs font-semibold text-white shadow-lg ${labelColor}`}>
+        {label}
+      </div>
+      <ReactFlowProvider>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          zoomOnDoubleClick={false}
+          fitView
+          fitViewOptions={{ padding: 0.25 }}
+          className="bg-zinc-950"
+        >
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3f3f46" />
+          <Controls className="!bg-zinc-800 !border-zinc-700" showInteractive={false} />
+          <MiniMap
+            style={miniMapStyle}
+            nodeColor={(n) => {
+              const data = n.data as FlowNodeData
+              switch (data?.nodeType) {
+                case 'input':    return '#6366f1'
+                case 'output':   return '#10b981'
+                case 'selector': return '#f59e0b'
+                default:         return '#52525b'
+              }
+            }}
+            maskColor="rgba(0,0,0,0.4)"
+          />
+        </ReactFlow>
+      </ReactFlowProvider>
+    </div>
+  )
+}
+
+// ── Compare split view ────────────────────────────────────────────────────────
+interface CompareSplitViewProps {
+  beforeNodes: Node<FlowNodeData>[]
+  beforeEdges: Edge[]
+  afterNodes: Node<FlowNodeData>[]
+  afterEdges: Edge[]
+}
+
+function CompareSplitView({ beforeNodes, beforeEdges, afterNodes, afterEdges }: CompareSplitViewProps) {
+  const afterNodeIds = new Set(afterNodes.map((n) => n.id))
+  const beforeNodeIds = new Set(beforeNodes.map((n) => n.id))
+
+  // Mark removed nodes in "before" panel (exist in before, not in after)
+  const diffBeforeNodes = beforeNodes.map((n) => ({
+    ...n,
+    data: {
+      ...n.data,
+      isChanged: !afterNodeIds.has(n.id),
+      changeSource: 'removed' as const,
+    },
+  }))
+
+  // Mark added nodes in "after" panel (exist in after, not in before)
+  const diffAfterNodes = afterNodes.map((n) => ({
+    ...n,
+    data: {
+      ...n.data,
+      isChanged: !beforeNodeIds.has(n.id),
+      changeSource: 'agent' as const,
+    },
+  }))
+
+  const removedCount = diffBeforeNodes.filter((n) => n.data.isChanged).length
+  const addedCount = diffAfterNodes.filter((n) => n.data.isChanged).length
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Diff summary bar */}
+      <div className="flex items-center justify-center gap-4 bg-zinc-900 border-b border-zinc-700 py-1.5 text-xs">
+        <span className="text-zinc-400">AI変更の比較</span>
+        {removedCount > 0 && (
+          <span className="text-rose-400">− {removedCount}ノード削除</span>
+        )}
+        {addedCount > 0 && (
+          <span className="text-purple-400">+ {addedCount}ノード追加</span>
+        )}
+        {removedCount === 0 && addedCount === 0 && (
+          <span className="text-zinc-500">ノードの差分なし</span>
+        )}
+      </div>
+      {/* Two panels side by side */}
+      <div className="flex flex-1 overflow-hidden">
+        <ReadonlyFlowPanel
+          nodes={diffBeforeNodes}
+          edges={beforeEdges}
+          label="変更前"
+          labelColor="bg-zinc-700"
+        />
+        <ReadonlyFlowPanel
+          nodes={diffAfterNodes}
+          edges={afterEdges}
+          label="変更後"
+          labelColor="bg-indigo-600"
+        />
+      </div>
+    </div>
+  )
+}
+
 export function FlowCanvas() {
   return (
     <ReactFlowProvider>
@@ -100,9 +220,17 @@ function FlowCanvasInner() {
   const canvasMode = useStore((s) => s.canvasMode)
   const currentNote = useStore((s) => s.currentNote)
   const agentStatus = useStore((s) => s.agentStatus)
+  const compareMode = useStore((s) => s.compareMode)
+  const beforeCompareNodes = useStore((s) => s.beforeCompareNodes)
+  const beforeCompareEdges = useStore((s) => s.beforeCompareEdges)
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>(storeNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(storeEdges)
+  const { fitView } = useReactFlow()
+
+  // Track previous node IDs (sorted) to detect structural changes (restore/apply)
+  // vs shallow data changes (animation flag clear, drag position update).
+  const prevNodeKeyRef = React.useRef<string>('')
 
   // Inspector state
   type InspectorTarget =
@@ -111,10 +239,20 @@ function FlowCanvasInner() {
     | null
   const [inspectorTarget, setInspectorTarget] = React.useState<InspectorTarget>(null)
 
-  // Keep local state in sync with store (when markdown changes)
+  // Keep local state in sync with store (when markdown changes).
+  // Re-fit the viewport only when the set of node IDs changes (restore /
+  // apply), not on every shallow update (drag, animation-flag clear, etc.).
   React.useEffect(() => {
     setNodes(storeNodes)
-  }, [storeNodes, setNodes])
+    const newKey = storeNodes.map((n) => n.id).sort().join(',')
+    if (newKey !== prevNodeKeyRef.current && storeNodes.length > 0) {
+      prevNodeKeyRef.current = newKey
+      // Defer fitView until ReactFlow has measured the new nodes
+      requestAnimationFrame(() => {
+        fitView({ padding: 0.2, duration: 300 })
+      })
+    }
+  }, [storeNodes, setNodes, fitView])
 
   React.useEffect(() => {
     setEdges(storeEdges)
@@ -239,6 +377,22 @@ function FlowCanvasInner() {
       <div className="flex-1 flex items-center justify-center bg-zinc-950 text-zinc-600 flex-col gap-3">
         <div className="text-4xl">🔷</div>
         <p className="text-sm">ノートを選択するとフローが表示されます</p>
+      </div>
+    )
+  }
+
+  // ── Compare split view ────────────────────────────────────────
+  if (compareMode && beforeCompareNodes && beforeCompareEdges) {
+    return (
+      <div className="flex-1 relative flex flex-col">
+        {/* Toolbar still visible so user can toggle compare off */}
+        <CanvasEditToolbar />
+        <CompareSplitView
+          beforeNodes={beforeCompareNodes}
+          beforeEdges={beforeCompareEdges}
+          afterNodes={storeNodes}
+          afterEdges={storeEdges}
+        />
       </div>
     )
   }
