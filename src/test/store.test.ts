@@ -23,6 +23,8 @@ function resetStore() {
     beforeCompareNodes: null,
     beforeCompareEdges: null,
     beforeCompareMd: null,
+    afterCompareNodes: null,
+    afterCompareEdges: null,
     isSaving: false,
     isConnected: false,
     sidebarOpen: true,
@@ -184,6 +186,8 @@ describe('useStore – suggestion (agent)', () => {
         beforeCompareMd: '# Before\n```flow\n[a] A\n```',
         beforeCompareNodes: [],
         beforeCompareEdges: [],
+        afterCompareNodes: [],
+        afterCompareEdges: [],
       })
       useStore.getState().applySuggestion()
     })
@@ -201,6 +205,8 @@ describe('useStore – suggestion (agent)', () => {
         beforeCompareMd: prevMd,
         beforeCompareNodes: [],
         beforeCompareEdges: [],
+        afterCompareNodes: [],
+        afterCompareEdges: [],
       })
       useStore.getState().revertLastAgentChange()
     })

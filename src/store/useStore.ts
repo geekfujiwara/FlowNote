@@ -78,6 +78,8 @@ export interface FlowNoteState {
   beforeCompareNodes: Node<FlowNodeData>[] | null
   beforeCompareEdges: Edge[] | null
   beforeCompareMd: string | null
+  afterCompareNodes: Node<FlowNodeData>[] | null
+  afterCompareEdges: Edge[] | null
 
   // Async flags
   isSaving: boolean
@@ -158,6 +160,8 @@ export const useStore = create<FlowNoteState>()(
     beforeCompareNodes: null,
     beforeCompareEdges: null,
     beforeCompareMd: null,
+    afterCompareNodes: null,
+    afterCompareEdges: null,
     isSaving: false,
     notesLoading: true,
     isConnected: false,
@@ -396,13 +400,15 @@ export const useStore = create<FlowNoteState>()(
           const newMd = suggestion.markdown!
           setMarkdown(newMd, 'agent')
           const afterState = get()
+          const afterNodes = afterState.nodes
+          const afterEdges = afterState.edges
           const vEntry: VersionEntry = {
             id: uuidv4(),
             label: `AI: ${suggestion.summary.slice(0, 40)}`,
             timestamp: new Date().toISOString(),
             markdown: newMd,
-            nodeCount: afterState.nodes.length,
-            edgeCount: afterState.edges.length,
+            nodeCount: afterNodes.length,
+            edgeCount: afterEdges.length,
           }
           set((s) => ({
             chatMessages: [...s.chatMessages, agentMsg],
@@ -412,6 +418,8 @@ export const useStore = create<FlowNoteState>()(
             beforeCompareNodes: snapshotNodes,
             beforeCompareEdges: snapshotEdges,
             beforeCompareMd: snapshotMd,
+            afterCompareNodes: afterNodes,
+            afterCompareEdges: afterEdges,
             compareMode: true,
             versionHistory: [vEntry, ...s.versionHistory].slice(0, 50),
           }))
@@ -460,6 +468,8 @@ export const useStore = create<FlowNoteState>()(
         beforeCompareNodes: null,
         beforeCompareEdges: null,
         beforeCompareMd: null,
+        afterCompareNodes: null,
+        afterCompareEdges: null,
       })
       trackEvent('suggestion_applied', {})
     },
@@ -468,7 +478,7 @@ export const useStore = create<FlowNoteState>()(
     revertLastAgentChange: () => {
       const { beforeCompareMd, setMarkdown } = get()
       if (!beforeCompareMd) {
-        set({ compareMode: false, beforeCompareNodes: null, beforeCompareEdges: null, beforeCompareMd: null })
+        set({ compareMode: false, beforeCompareNodes: null, beforeCompareEdges: null, beforeCompareMd: null, afterCompareNodes: null, afterCompareEdges: null })
         return
       }
       setMarkdown(beforeCompareMd, 'user')
@@ -477,6 +487,8 @@ export const useStore = create<FlowNoteState>()(
         beforeCompareNodes: null,
         beforeCompareEdges: null,
         beforeCompareMd: null,
+        afterCompareNodes: null,
+        afterCompareEdges: null,
       })
       get().saveNote()
       trackEvent('agent_change_reverted', {})

@@ -250,6 +250,8 @@ function FlowCanvasInner() {
   const compareMode = useStore((s) => s.compareMode)
   const beforeCompareNodes = useStore((s) => s.beforeCompareNodes)
   const beforeCompareEdges = useStore((s) => s.beforeCompareEdges)
+  const afterCompareNodes = useStore((s) => s.afterCompareNodes)
+  const afterCompareEdges = useStore((s) => s.afterCompareEdges)
   const applySuggestion = useStore((s) => s.applySuggestion)
   const revertLastAgentChange = useStore((s) => s.revertLastAgentChange)
 
@@ -411,7 +413,7 @@ function FlowCanvasInner() {
   }
 
   // ── Compare split view ────────────────────────────────────────
-  if (compareMode && beforeCompareNodes && beforeCompareEdges) {
+  if (compareMode && beforeCompareNodes && beforeCompareEdges && afterCompareNodes && afterCompareEdges) {
     return (
       <div className="flex-1 relative flex flex-col">
         {/* Toolbar still visible so user can toggle compare off */}
@@ -419,8 +421,8 @@ function FlowCanvasInner() {
         <CompareSplitView
           beforeNodes={beforeCompareNodes}
           beforeEdges={beforeCompareEdges}
-          afterNodes={storeNodes}
-          afterEdges={storeEdges}
+          afterNodes={afterCompareNodes}
+          afterEdges={afterCompareEdges}
           onConfirm={applySuggestion}
           onRevert={revertLastAgentChange}
         />
