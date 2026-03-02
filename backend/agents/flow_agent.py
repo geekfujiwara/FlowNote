@@ -784,13 +784,32 @@ async def run_flow_agent(
     logger.debug("Agent raw response: %s", raw[:500])
 
     # ── Extract JSON from response ────────────────────────────
-    # Strip markdown code fences that some models add around JSON
-    cleaned = re.sub(r"```(?:json)?\s*", "", raw)
-    cleaned = re.sub(r"```\s*$", "", cleaned, flags=re.MULTILINE)
-    json_match = re.search(r"\{[\s\S]*\}", cleaned)
-
+    # IMPORTANT: Do NOT strip backticks globally – the "markdown" field inside the
+    # JSON may contain ```flow ... ``` blocks, and stripping all backticks would
+    # corrupt those blocks (turning "```flow" into "flow").
+    #
+    # Strategy:
+    #   1. Search for the outermost { ... } in the raw response and try json.loads().
+    #      This handles the normal case where the model returns plain JSON.
+    #   2. If that fails, strip only the *outermost* markdown code fence wrapper
+    #      (some models wrap JSON in ```json ... ```) and retry.
+    data: dict | None = None
+    json_match = re.search(r"\{[\s\S]*\}", raw)
     if json_match:
-        data = json.loads(json_match.group())
+        try:
+            data = json.loads(json_match.group())
+        except json.JSONDecodeError:
+            # Fallback: strip only the outermost ```json / ``` fence
+            stripped = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+            stripped = re.sub(r"\s*```\s*$", "", stripped.strip())
+            inner_match = re.search(r"\{[\s\S]*\}", stripped)
+            if inner_match:
+                try:
+                    data = json.loads(inner_match.group())
+                except json.JSONDecodeError:
+                    data = None
+
+    if data is not None:
         updated_markdown = data.get("markdown", markdown)
         summary = data.get("summary", "フローを更新しました。")
         nodes_delta = int(data.get("nodesDelta", 0))
