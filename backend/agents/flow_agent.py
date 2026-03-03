@@ -691,11 +691,12 @@ async def run_flow_agent(
     )
 
     # 画像添付時は vision multipart メッセージを構築（OCR 対応）
+    # SVG 等ベクター画像は Vision API 非対応のため _OCR_SUPPORTED_MIME で絞る
     attached_files = (context or {}).get("attachedFiles") or []
     image_files = [
         f for f in attached_files
         if isinstance(f, dict)
-        and (f.get("mimeType") or "").startswith("image/")
+        and (f.get("mimeType") or "") in _OCR_SUPPORTED_MIME
         and f.get("content")
     ]
 
