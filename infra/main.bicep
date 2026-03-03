@@ -301,3 +301,4 @@ output storageAccountName string = storage.name
 output appInsightsConnectionString string = appInsights.properties.ConnectionString
 output openAiEndpoint string = openAi.properties.endpoint
 output openAiDeploymentName string = modelDeployment.name
+// ── SP role grant is handled by infra.yml (GitHub Actions) ──
