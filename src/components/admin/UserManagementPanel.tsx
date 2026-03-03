@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   Loader2,
 } from 'lucide-react'
+import { useMsal } from '@azure/msal-react'
+import { hasMsalConfig, loginRequest } from '@/auth/msalConfig'
 
 // ─────────────────────────────────────────────────────────────
 // Types – mirroring the backend API response shape
@@ -48,10 +50,6 @@ interface ApiResponse {
 // ─────────────────────────────────────────────────────────────
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:7071'
-
-function getToken(): string {
-  return sessionStorage.getItem('msal_token') ?? ''
-}
 
 // ─────────────────────────────────────────────────────────────
 // Micro helpers
@@ -290,6 +288,7 @@ function UserDetail({ user, allUsers, onBack }: {
 interface Props { onClose: () => void }
 
 export function UserManagementPanel({ onClose }: Props) {
+  const { instance, accounts } = useMsal()
   const [users, setUsers]     = useState<ApiUser[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
@@ -301,9 +300,24 @@ export function UserManagementPanel({ onClose }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE}/api/mgmt/analytics/users`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      })
+      // MSALが有効な場合はサイレントでIDトークンを取得（ポップアップ不要）
+      let token = sessionStorage.getItem('msal_token') ?? ''
+      if (hasMsalConfig && accounts.length > 0) {
+        try {
+          const silent = await instance.acquireTokenSilent({
+            ...loginRequest,
+            account: accounts[0],
+          })
+          token = silent.idToken ?? silent.accessToken
+        } catch (silentErr) {
+          console.warn('[UserMgmt] acquireTokenSilent failed:', silentErr)
+        }
+      }
+
+      const headers: Record<string, string> = {}
+      if (token) headers['Authorization'] = `Bearer ${token}`
+
+      const res = await fetch(`${API_BASE}/api/mgmt/analytics/users`, { headers })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error((body as { error?: string }).error ?? `HTTP ${res.status}`)
@@ -316,7 +330,7 @@ export function UserManagementPanel({ onClose }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [instance, accounts])
 
   useEffect(() => { fetchUsers() }, [fetchUsers])
 
