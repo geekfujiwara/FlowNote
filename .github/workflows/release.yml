@@ -394,69 +394,25 @@ jobs:
           fi
 
       - name: Deploy to Azure Functions
-        # Flex Consumption (FC1) requires the Kudu OneDeploy endpoint: /api/publish?type=zip
-        # azure/functions-action@v1 with publish-profile falls back to /api/zipdeploy and gets
-        # stuck in a retry loop trying to set SCM_DO_BUILD_DURING_DEPLOYMENT (405 on FC1).
-        # Solution: call /api/publish directly via curl with SCM basic-auth credentials
-        # extracted from the publish profile XML.
-        env:
-          PUBLISH_PROFILE: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+        # Flex Consumption (FC1) has Basic Auth disabled; use az functionapp deploy
+        # which authenticates via the Azure AD service principal already logged in.
+        # This calls the /api/publish endpoint under the hood with an AAD bearer token.
         run: |
-          # Parse SCM credentials from publish profile XML using Python (available on runner)
-          SCM_HOST=$(python3 -c "
-          import sys, xml.etree.ElementTree as ET
-          data = open('/dev/stdin').read()
-          tree = ET.fromstring(data)
-          for p in tree.iter('publishProfile'):
-              if p.get('publishMethod') == 'ZipDeploy':
-                  url = p.get('publishUrl', '')
-                  print(url.split(':')[0])
-                  break
-          " <<< "$PUBLISH_PROFILE")
-
-          SCM_USER=$(python3 -c "
-          import sys, xml.etree.ElementTree as ET
-          data = open('/dev/stdin').read()
-          tree = ET.fromstring(data)
-          for p in tree.iter('publishProfile'):
-              if p.get('publishMethod') == 'ZipDeploy':
-                  print(p.get('userName', ''))
-                  break
-          " <<< "$PUBLISH_PROFILE")
-
-          SCM_PASS=$(python3 -c "
-          import sys, xml.etree.ElementTree as ET
-          data = open('/dev/stdin').read()
-          tree = ET.fromstring(data)
-          for p in tree.iter('publishProfile'):
-              if p.get('publishMethod') == 'ZipDeploy':
-                  print(p.get('userPWD', ''))
-                  break
-          " <<< "$PUBLISH_PROFILE")
-
-          if [ -z "$SCM_HOST" ] || [ -z "$SCM_USER" ] || [ -z "$SCM_PASS" ]; then
-            echo "::error::Failed to parse SCM credentials from publish profile"
-            exit 1
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
           fi
 
-          DEPLOY_URL="https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
-          echo "Deploying to: https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
-
-          HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" \
-            -X POST "$DEPLOY_URL" \
-            -u "${SCM_USER}:${SCM_PASS}" \
-            -H "Content-Type: application/zip" \
-            --data-binary @func-package.zip)
-
-          echo "HTTP Response: $HTTP_STATUS"
-          cat /tmp/deploy-response.json 2>/dev/null || true
-
-          if [[ "$HTTP_STATUS" =~ ^2 ]]; then
-            echo "✅ Deployment succeeded (HTTP $HTTP_STATUS)"
-          else
-            echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
-            exit 1
-          fi
+          echo "Deploying func-package.zip to ${{ env.FUNCTION_APP_NAME }} ..."
+          az functionapp deploy \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --src-path func-package.zip \
+            --type zip \
+            --build-remote false \
+            --async false \
+            "${SUBSCRIPTION_ARGS[@]}"
+          echo "✅ Deployment submitted"
 
       - name: Configure Function App CORS
         # Ensure CORS wildcard is set on the deployed Function App on every release.
