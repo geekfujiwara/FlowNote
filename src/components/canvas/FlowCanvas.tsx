@@ -22,6 +22,7 @@ import '@xyflow/react/dist/style.css'
 import { Check, Undo2 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { CustomNode } from './CustomNode'
+import { AddNodeEdge } from './AddNodeEdge'
 import { CanvasEditToolbar } from './CanvasEditToolbar'
 import { NodeEdgeInspector } from './NodeEdgeInspector'
 import { PixelLoadingOverlay } from './PixelLoadingOverlay'
@@ -30,6 +31,10 @@ import { v4 as uuidv4 } from 'uuid'
 
 const nodeTypes: NodeTypes = {
   flowNode: CustomNode,
+}
+
+const edgeTypes = {
+  addNodeEdge: AddNodeEdge,
 }
 
 // ── Animated connection line drawn while dragging from a handle ──────────────
@@ -316,7 +321,8 @@ function FlowCanvasInner() {
       const newEdge: Edge = {
         ...params,
         id: `e-${uuidv4()}`,
-        type: 'smoothstep',
+        type: 'addNodeEdge',
+        animated: false,
       }
       const updated = addEdge(newEdge, edges)
       setEdges(updated)
@@ -457,6 +463,7 @@ function FlowCanvasInner() {
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         connectionLineComponent={AnimatedConnectionLine}
         fitView
         fitViewOptions={{ padding: 0.2 }}

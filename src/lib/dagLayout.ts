@@ -51,7 +51,7 @@ export function applyDagreLayout(
     source: e.source,
     target: e.target,
     label: e.label,
-    type: 'smoothstep',
+    type: 'addNodeEdge',
     animated: false,
   }))
 

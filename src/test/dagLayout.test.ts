@@ -55,10 +55,10 @@ describe('applyDagreLayout', () => {
     expect(edges[1]).toMatchObject({ source: 'proc',  target: 'end' })
   })
 
-  it('エッジの type が smoothstep に設定される', () => {
+  it('エッジの type が addNodeEdge に設定される', () => {
     const { edges } = applyDagreLayout(SAMPLE_FLOW)
     for (const e of edges) {
-      expect(e.type).toBe('smoothstep')
+      expect(e.type).toBe('addNodeEdge')
     }
   })
 
