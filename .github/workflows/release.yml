@@ -394,23 +394,81 @@ jobs:
           fi
 
       - name: Deploy to Azure Functions
-        # Flex Consumption (FC1) has Basic Auth disabled; use az functionapp deploy
-        # which authenticates via the Azure AD service principal already logged in.
-        # This calls the /api/publish endpoint under the hood with an AAD bearer token.
+        # Flex Consumption (FC1): enable SCM Basic Auth first (disabled by default),
+        # then deploy via Kudu /api/publish with publish-profile credentials.
+        # Basic Auth enable uses the AAD SP token (requires Contributor on RG).
+        # Fall back to az functionapp deploy if Basic Auth enable fails.
+        env:
+          PUBLISH_PROFILE: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
         run: |
-          SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          SUB="${{ env.SUBSCRIPTION_ID }}"
+          RG="${{ env.RESOURCE_GROUP }}"
+          APP="${{ env.FUNCTION_APP_NAME }}"
+
+          # Step 1: Ensure SCM Basic Auth is enabled (idempotent)
+          echo "Enabling SCM Basic Auth..."
+          az rest --method PUT \
+            --url "https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${APP}/basicPublishingCredentialsPolicies/scm?api-version=2022-03-01" \
+            --headers "Content-Type=application/json" \
+            --body '{"properties":{"allow":true}}' \
+            --output none || echo "::warning::Could not enable Basic Auth; attempting deploy anyway"
+
+          # Step 2: Parse SCM credentials from publish profile XML
+          SCM_HOST=$(python3 -c "
+          import sys, xml.etree.ElementTree as ET
+          data = open('/dev/stdin').read()
+          tree = ET.fromstring(data)
+          for p in tree.iter('publishProfile'):
+              if p.get('publishMethod') == 'ZipDeploy':
+                  url = p.get('publishUrl', '')
+                  print(url.split(':')[0])
+                  break
+          " <<< "$PUBLISH_PROFILE")
+
+          SCM_USER=$(python3 -c "
+          import sys, xml.etree.ElementTree as ET
+          data = open('/dev/stdin').read()
+          tree = ET.fromstring(data)
+          for p in tree.iter('publishProfile'):
+              if p.get('publishMethod') == 'ZipDeploy':
+                  print(p.get('userName', ''))
+                  break
+          " <<< "$PUBLISH_PROFILE")
+
+          SCM_PASS=$(python3 -c "
+          import sys, xml.etree.ElementTree as ET
+          data = open('/dev/stdin').read()
+          tree = ET.fromstring(data)
+          for p in tree.iter('publishProfile'):
+              if p.get('publishMethod') == 'ZipDeploy':
+                  print(p.get('userPWD', ''))
+                  break
+          " <<< "$PUBLISH_PROFILE")
+
+          if [ -z "$SCM_HOST" ] || [ -z "$SCM_USER" ] || [ -z "$SCM_PASS" ]; then
+            echo "::error::Failed to parse SCM credentials from publish profile"
+            exit 1
           fi
 
-          echo "Deploying func-package.zip to ${{ env.FUNCTION_APP_NAME }} ..."
-          az functionapp deploy \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --src-path func-package.zip \
-            --type zip \
-            "${SUBSCRIPTION_ARGS[@]}"
-          echo "✅ Deployment submitted"
+          # Step 3: Deploy via Kudu /api/publish (FC1 OneDeploy endpoint)
+          DEPLOY_URL="https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
+          echo "Deploying to: https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
+
+          HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" \
+            -X POST "$DEPLOY_URL" \
+            -u "${SCM_USER}:${SCM_PASS}" \
+            -H "Content-Type: application/zip" \
+            --data-binary @func-package.zip)
+
+          echo "HTTP Response: $HTTP_STATUS"
+          cat /tmp/deploy-response.json 2>/dev/null || true
+
+          if [[ "$HTTP_STATUS" =~ ^2 ]]; then
+            echo "✅ Deployment succeeded (HTTP $HTTP_STATUS)"
+          else
+            echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
 
       - name: Configure Function App CORS
         # Ensure CORS wildcard is set on the deployed Function App on every release.
