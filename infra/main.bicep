@@ -68,6 +68,9 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
 }
 
 // ── Storage Account ──────────────────────────────────────────
+// BCP334: Static analysis cannot infer min length from take(replace(...)) expression;
+// prefix has @minLength(3) so storageAccountName is always ≥ 3 chars.
+#disable-next-line BCP334
 resource storage 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   name: storageAccountName
   location: location
