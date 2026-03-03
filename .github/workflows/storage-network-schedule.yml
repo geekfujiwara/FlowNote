@@ -1,163 +1,80 @@
 # ============================================================
 # FlowNote – Storage Network Access Schedule
 #
-# ストレージアカウントのパブリックネットワークアクセスを
-# セキュリティのためスケジュール制御する。
-#
-# スケジュール (JST, UTC+9):
-#   毎晩 21:00 JST (12:00 UTC) → publicNetworkAccess = Disabled
-#   毎朝 04:00 JST (19:00 UTC) → publicNetworkAccess = Enabled
-#
-# 備考:
-#   - bypass: AzureServices は常に有効のため、Kudu / Function App ランタイム /
-#     Application Insights 等の Azure 内部サービスは Disabled 時も継続アクセス可能。
-#   - release.yml の "Ensure storage public network access is Enabled" ステップが
-#     デプロイ前に自動で Enabled に戻すため、夜間に push しても CD は正常動作する。
-#   - workflow_dispatch で手動実行も可能 (action: enable | disable)。
+# スケジュール (JST):
+#   04:00 (19:00 UTC) → Enabled に復元（業務開始前）
+#   21:00 (12:00 UTC) → Disabled に設定
 #
 # Required Secrets:
-#   AZURE_CREDENTIALS        – Service principal JSON
-#   AZURE_SUBSCRIPTION_ID    – (Optional) Target subscription
-#   AZURE_RESOURCE_GROUP     – Resource group name (e.g. rg-flownote)
+#   AZURE_CLIENT_ID       – Service principal client ID
+#   AZURE_CLIENT_SECRET   – Service principal client secret
+#   AZURE_TENANT_ID       – Azure tenant ID
+#   AZURE_SUBSCRIPTION_ID – Azure subscription ID
+#   AZURE_RESOURCE_GROUP  – Resource group name (e.g. rg-flownote)
 # ============================================================
 name: Storage Network Access Schedule
 
 on:
   schedule:
-    # 毎晩 21:00 JST = 12:00 UTC → Disabled
-    - cron: '0 12 * * *'
-    # 毎朝 04:00 JST = 19:00 UTC → Enabled
-    - cron: '0 19 * * *'
+    - cron: '0 19 * * *'  # 04:00 JST → Enabled
+    - cron: '0 12 * * *'  # 21:00 JST → Disabled
   workflow_dispatch:
     inputs:
       action:
         description: '実行するアクション'
         required: true
+        default: 'enable'
         type: choice
         options:
           - enable
           - disable
 
-env:
-  RESOURCE_GROUP:       ${{ secrets.AZURE_RESOURCE_GROUP }}
-  SUBSCRIPTION_ID:      ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  STORAGE_ACCOUNT_NAME: flownoteprodst   # Bicep: take(replace('flownoteprodst','-',''),24)
-
 jobs:
-
-  # ─────────────────────────────────────────────────────────
-  # Disable public network access (21:00 JST)
-  # ─────────────────────────────────────────────────────────
-  disable-public-access:
-    name: 🔒 Disable public network access (21:00 JST)
+  manage-network-access:
     runs-on: ubuntu-latest
-    if: >-
-      github.event.schedule == '0 12 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'disable')
-
     steps:
       - name: Azure Login
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Disable public network access
-        # continue-on-error: SP may lack Storage Account Contributor; storage access is
-        # managed as best-effort and the scheduled workflow should not block on RBAC errors.
-        continue-on-error: true
+      - name: Determine action
+        id: action
         run: |
-          SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "target=${{ inputs.action }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "0 12 * * *" ]; then
+            echo "target=disable" >> $GITHUB_OUTPUT
+          else
+            echo "target=enable" >> $GITHUB_OUTPUT
           fi
+
+      - name: Enable storage network access (04:00 JST)
+        if: steps.action.outputs.target == 'enable'
+        run: |
+          echo "▶ publicNetworkAccess=Enabled に設定します..."
           az storage account update \
-            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            "${SUBSCRIPTION_ARGS[@]}" \
-            --public-network-access Disabled \
-            --bypass AzureServices Logging Metrics \
-            --output none
-          echo "🔒 publicNetworkAccess = Disabled"
-          echo "✅ bypass = AzureServices,Logging,Metrics (Azure 内部からのアクセスは継続可能)"
-
-      - name: Verify
-        continue-on-error: true
-        run: |
-          SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
-          fi
-          RESULT=$(az storage account show \
-            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            "${SUBSCRIPTION_ARGS[@]}" \
-            --query "{publicNetworkAccess: properties.publicNetworkAccess, bypass: properties.networkAcls.bypass}" \
-            --output json)
-          echo "$RESULT"
-          echo "## Storage Network Access" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 項目 | 値 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|------|-----|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| publicNetworkAccess | $(echo $RESULT | jq -r .publicNetworkAccess) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| bypass | $(echo $RESULT | jq -r .bypass) |" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Azure Logout
-        if: always()
-        run: az logout
-
-  # ─────────────────────────────────────────────────────────
-  # Enable public network access (04:00 JST)
-  # ─────────────────────────────────────────────────────────
-  enable-public-access:
-    name: 🔓 Enable public network access (04:00 JST)
-    runs-on: ubuntu-latest
-    if: >-
-      github.event.schedule == '0 19 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'enable')
-
-    steps:
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Enable public network access
-        # continue-on-error: SP may lack Storage Account Contributor; storage access is
-        # managed as best-effort and the scheduled workflow should not block on RBAC errors.
-        continue-on-error: true
-        run: |
-          SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
-          fi
-          az storage account update \
-            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            "${SUBSCRIPTION_ARGS[@]}" \
+            --name flownoteprodst \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
             --public-network-access Enabled \
-            --bypass AzureServices Logging Metrics \
-            --output none
-          echo "🔓 publicNetworkAccess = Enabled"
+            --default-action Allow
+          echo "✓ 完了"
 
-      - name: Verify
-        continue-on-error: true
+      - name: Disable storage network access (21:00 JST)
+        if: steps.action.outputs.target == 'disable'
         run: |
-          SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
-          fi
-          RESULT=$(az storage account show \
-            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            "${SUBSCRIPTION_ARGS[@]}" \
-            --query "{publicNetworkAccess: properties.publicNetworkAccess, bypass: properties.networkAcls.bypass}" \
-            --output json)
-          echo "$RESULT"
-          echo "## Storage Network Access" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 項目 | 値 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|------|-----|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| publicNetworkAccess | $(echo $RESULT | jq -r .publicNetworkAccess) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| bypass | $(echo $RESULT | jq -r .bypass) |" >> "$GITHUB_STEP_SUMMARY"
+          echo "▶ publicNetworkAccess=Disabled に設定します..."
+          az storage account update \
+            --name flownoteprodst \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --public-network-access Disabled \
+            --default-action Deny
+          echo "✓ 完了"
 
-      - name: Azure Logout
-        if: always()
-        run: az logout
+      - name: Verify settings
+        run: |
+          az storage account show \
+            --name flownoteprodst \
+            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --query "{publicNetworkAccess:publicNetworkAccess, defaultAction:networkRuleSet.defaultAction}" \
+            -o table
