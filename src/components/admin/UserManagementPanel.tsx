@@ -301,7 +301,7 @@ export function UserManagementPanel({ onClose }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE}/api/admin/analytics/users`, {
+      const res = await fetch(`${API_BASE}/api/mgmt/analytics/users`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       })
       if (!res.ok) {

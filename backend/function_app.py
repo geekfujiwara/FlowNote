@@ -491,10 +491,11 @@ async def auth_me(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # ---------------------------------------------------------------
-# GET /api/admin/analytics/users  – App Insights ユーザー活動集計 (管理者専用)
+# GET /api/mgmt/analytics/users  – App Insights ユーザー活動集計 (管理者専用)
+# NOTE: /api/admin/* は Azure Functions ランタイムが予約しているため mgmt を使用
 # ---------------------------------------------------------------
 
-@app.route(route="admin/analytics/users", methods=["GET", "OPTIONS"])
+@app.route(route="mgmt/analytics/users", methods=["GET", "OPTIONS"])
 async def admin_analytics_users(req: func.HttpRequest) -> func.HttpResponse:
     """
     Azure Monitor Logs Query SDK で Application Insights にクエリし、
