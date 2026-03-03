@@ -16,6 +16,7 @@ import {
   type NodeTypes,
   type ConnectionLineComponentProps,
   type FinalConnectionState,
+  type OnConnectStartParams,
   BackgroundVariant,
   Position,
 } from '@xyflow/react'
@@ -398,7 +399,7 @@ function FlowCanvasInner() {
   }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onConnectStart = useCallback(
-    (_: React.MouseEvent | React.TouchEvent, params: { nodeId: string | null }) => {
+    (_: MouseEvent | TouchEvent, params: OnConnectStartParams) => {
       connectingSourceId.current = params.nodeId
     },
     []
