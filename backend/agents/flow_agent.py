@@ -597,11 +597,22 @@ def _parse_flow(markdown: str) -> tuple[list[dict], list[dict]]:
 # OCR エントリーポイント
 # ─────────────────────────────────────────────────────────────
 
+# Vision API がサポートする画像形式
+_OCR_SUPPORTED_MIME = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp"}
+
 async def run_ocr(image_data_url: str, mime_type: str = "image/png") -> str:
     """
     Extract text from an image using the vision model.
     Returns the extracted text (or a description if no text is found).
+    Raises ValueError for unsupported MIME types.
     """
+    # 未対応の画像形式（SVG 等）は履歴を返して清潔に拒否
+    if mime_type not in _OCR_SUPPORTED_MIME:
+        raise ValueError(
+            f"OCR 非対応形式: {mime_type}\n"
+            f"対応形式: JPEG / PNG / GIF / WebP / BMP\n"
+            f"SVG 等のベクター画像はテキストファイルとして添付してください。"
+        )
     client, model = _get_client()
     response = await client.chat.completions.create(
         model=model,
@@ -627,7 +638,7 @@ async def run_ocr(image_data_url: str, mime_type: str = "image/png") -> str:
                 ],
             }
         ],
-        max_tokens=2000,
+        max_completion_tokens=2000,
     )
     return response.choices[0].message.content or ""
 
