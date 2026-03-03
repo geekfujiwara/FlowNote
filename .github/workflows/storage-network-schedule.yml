@@ -6,9 +6,7 @@
 #   21:00 (12:00 UTC) → Disabled に設定
 #
 # Required Secrets:
-#   AZURE_CLIENT_ID       – Service principal client ID
-#   AZURE_CLIENT_SECRET   – Service principal client secret
-#   AZURE_TENANT_ID       – Azure tenant ID
+#   AZURE_CREDENTIALS     – Service principal JSON (clientId, clientSecret, tenantId, subscriptionId)
 #   AZURE_SUBSCRIPTION_ID – Azure subscription ID
 #   AZURE_RESOURCE_GROUP  – Resource group name (e.g. rg-flownote)
 # ============================================================
@@ -28,6 +26,13 @@ on:
         options:
           - enable
           - disable
+
+env:
+  RESOURCE_GROUP:       ${{ secrets.AZURE_RESOURCE_GROUP }}
+  SUBSCRIPTION_ID:      ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  # Storage account name mirrors Bicep: take(replace('${prefix}${environment}st','-',''),24)
+  # prefix=flownote, environment=prod → flownoteprodst
+  STORAGE_ACCOUNT_NAME: flownoteprodst
 
 jobs:
   manage-network-access:
@@ -54,8 +59,8 @@ jobs:
         run: |
           echo "▶ publicNetworkAccess=Enabled に設定します..."
           az storage account update \
-            --name flownoteprodst \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
             --public-network-access Enabled \
             --default-action Allow
           echo "✓ 完了"
@@ -65,8 +70,8 @@ jobs:
         run: |
           echo "▶ publicNetworkAccess=Disabled に設定します..."
           az storage account update \
-            --name flownoteprodst \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
             --public-network-access Disabled \
             --default-action Deny
           echo "✓ 完了"
@@ -74,7 +79,7 @@ jobs:
       - name: Verify settings
         run: |
           az storage account show \
-            --name flownoteprodst \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
             --query "{publicNetworkAccess:publicNetworkAccess, defaultAction:networkRuleSet.defaultAction}" \
             -o table
