@@ -178,6 +178,32 @@ export async function runOcr(imageDataUrl: string, mimeType: string): Promise<st
 }
 
 // ─────────────────────────────────────────────
+// ドキュメント解析 (PDF / DOCX / PPTX / XLSX → Markdown)
+// ─────────────────────────────────────────────
+
+export async function parseDocument(
+  contentBase64: string,
+  fileName: string,
+  mimeType: string,
+): Promise<string> {
+  if (USE_MOCK_AGENT) {
+    await delay(1500)
+    return `（モック）ドキュメント解析: ${fileName}\n\nサンプルテキスト抽出結果`
+  }
+  const res = await fetch(`${AGENT_API_BASE}/api/parse-document`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: contentBase64, fileName, mimeType }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error ?? `Parse error ${res.status}`)
+  }
+  const data = await res.json()
+  return data.text ?? ''
+}
+
+// ─────────────────────────────────────────────
 // Negotiate (SignalR)
 // ─────────────────────────────────────────────
 

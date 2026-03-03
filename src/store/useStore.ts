@@ -345,11 +345,22 @@ export const useStore = create<FlowNoteState>()(
         ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'].includes(m)
       const isSvg = (f: AttachedFile) =>
         f.mimeType === 'image/svg+xml' || f.name.toLowerCase().endsWith('.svg')
+      const isDocument = (f: AttachedFile) => {
+        const docMimes = new Set([
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/msword', 'application/vnd.ms-powerpoint', 'application/vnd.ms-excel',
+        ])
+        const ext = '.' + f.name.split('.').pop()?.toLowerCase()
+        return docMimes.has(f.mimeType) || ['.pdf', '.docx', '.pptx', '.xlsx', '.doc', '.ppt', '.xls'].includes(ext)
+      }
 
       // テキストファイルの内容をエージェントへ渡す補足コンテキストを構築
-      // SVG はクライアント抽出済み ocrText を優先（生 XML は大きすぎるため）
+      // SVG / ドキュメントは抽出済み ocrText を優先（生バイナリ/XML は大きすぎるため）
       const textAttachments = attachedFiles?.filter((f) => !isRasterImage(f.mimeType)) ?? []
-      // 画像のOCRテキスト（ラスター + SVG 両方）もエージェントへ渡す
+      // ラスター画像の OCR テキストもエージェントへ渡す
       const imageOcrLines = attachedFiles
         ?.filter((f) => isRasterImage(f.mimeType) && f.ocrText)
         .map((f) => `【${f.name}（OCR抽出）】\n${f.ocrText}`)
@@ -361,6 +372,9 @@ export const useStore = create<FlowNoteState>()(
             textAttachments.map((f) => {
               // SVG: ocrText（抽出テキスト）があればそちらを使う
               if (isSvg(f) && f.ocrText) return `【${f.name}（SVGテキスト抽出）】\n${f.ocrText}`
+              // ドキュメント: 解析済み Markdown を優先
+              if (isDocument(f) && f.ocrText) return `【${f.name}（ドキュメント抽出）】\n${f.ocrText}`
+              if (isDocument(f)) return `【${f.name}】\n（解析中またはエラー）`
               return `【${f.name}】\n${f.content}`
             }).join('\n\n') +
             (imageOcrLines ? '\n\n' + imageOcrLines : '')

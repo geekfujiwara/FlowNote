@@ -24,13 +24,39 @@ import {
 } from 'lucide-react'
 import type { ChatMessage, AttachedFile } from '@/types'
 import { getTemplateById } from '@/lib/templates'
-import { runOcr } from '@/lib/mockApi'
+import { runOcr, parseDocument } from '@/lib/mockApi'
 
 // Vision API がサポートするラスター形式（SVG 等ベクター画像はテキスト扱い）
 const OCR_SUPPORTED_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'])
 const isOcrSupportedImage = (mimeType: string) => OCR_SUPPORTED_MIME.has(mimeType)
 const isSvg = (mimeType: string, name: string) =>
   mimeType === 'image/svg+xml' || name.toLowerCase().endsWith('.svg')
+
+// バックエンド解析対応バイナリドキュメント形式
+const DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // docx
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // pptx
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // xlsx
+  'application/msword', // doc (古形式)
+  'application/vnd.ms-powerpoint', // ppt (古形式)
+  'application/vnd.ms-excel', // xls (古形式)
+])
+const DOCUMENT_EXT = new Set(['.pdf', '.docx', '.pptx', '.xlsx', '.doc', '.ppt', '.xls'])
+const isDocumentFile = (mimeType: string, name: string) =>
+  DOCUMENT_MIME_TYPES.has(mimeType) ||
+  DOCUMENT_EXT.has('.' + name.split('.').pop()?.toLowerCase())
+
+/** ArrayBuffer → base64 文字列 */
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  const chunkSize = 8192
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
+}
 
 /**
  * SVG XML からテキスト要素（<text>, <tspan>, <title>, <desc>）を抽出する。
@@ -117,7 +143,7 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
     }
   }
 
-  const ACCEPTED_TYPES = '.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css,.xml,.yaml,.yml,.svg,image/*'
+  const ACCEPTED_TYPES = '.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css,.xml,.yaml,.yml,.svg,.pdf,.docx,.pptx,.xlsx,.doc,.ppt,.xls,image/*'
 
   /** 添付ファイルの一池を名前+contentで特实して更新するhelper */
   const updateFile = useCallback(
@@ -137,42 +163,56 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
     files.forEach((file) => {
       const isImage = isOcrSupportedImage(file.type)
       const isSvgFile = isSvg(file.type, file.name)
+      const isDoc = !isImage && !isSvgFile && isDocumentFile(file.type, file.name)
       const reader = new FileReader()
 
       reader.onload = (ev) => {
-        const content = ev.target?.result as string
+        const content = ev.target?.result
+        // ドキュメントは ArrayBuffer、その他は文字列
+        const contentStr = isDoc
+          ? arrayBufferToBase64(content as ArrayBuffer)
+          : (content as string)
         const newFile: AttachedFile = {
           name: file.name,
           mimeType: file.type || (isSvgFile ? 'image/svg+xml' : 'text/plain'),
-          content,
+          content: contentStr,
           size: file.size,
-          // ラスター画像はサーバー OCR、SVG はクライアント抽出、それ以外は不要
-          ocrStatus: (isImage || isSvgFile) ? 'loading' : undefined,
-          ocrStartedAt: (isImage || isSvgFile) ? Date.now() : undefined,
+          ocrStatus: (isImage || isSvgFile || isDoc) ? 'loading' : undefined,
+          ocrStartedAt: (isImage || isSvgFile || isDoc) ? Date.now() : undefined,
         }
         setAttachedFiles((prev) => [...prev, newFile])
 
         if (isImage) {
           // ラスター画像: サーバー Vision API OCR
-          runOcr(content, file.type)
-            .then((ocrText) => updateFile(file.name, content, { ocrStatus: 'done', ocrText }))
-            .catch(() => updateFile(file.name, content, { ocrStatus: 'error' }))
+          runOcr(contentStr, file.type)
+            .then((ocrText) => updateFile(file.name, contentStr, { ocrStatus: 'done', ocrText }))
+            .catch(() => updateFile(file.name, contentStr, { ocrStatus: 'error' }))
         } else if (isSvgFile) {
           // SVG: ブラウザ上で XML パースしてテキスト抽出（サーバー不要）
           try {
-            const ocrText = extractSvgText(content)
-            updateFile(file.name, content, {
+            const ocrText = extractSvgText(contentStr)
+            updateFile(file.name, contentStr, {
               ocrStatus: 'done',
               ocrText: ocrText || '（テキスト要素なし）',
             })
           } catch {
-            updateFile(file.name, content, { ocrStatus: 'error' })
+            updateFile(file.name, contentStr, { ocrStatus: 'error' })
           }
+        } else if (isDoc) {
+          // PDF/DOCX/PPTX/XLSX: バックエンドで解析して Markdown 化
+          parseDocument(contentStr, file.name, file.type)
+            .then((ocrText) => updateFile(file.name, contentStr, { ocrStatus: 'done', ocrText }))
+            .catch((err: unknown) => {
+              const msg = err instanceof Error ? err.message : 'Parse error'
+              updateFile(file.name, contentStr, { ocrStatus: 'error', ocrText: msg })
+            })
         }
       }
 
       if (isImage) {
         reader.readAsDataURL(file)
+      } else if (isDoc) {
+        reader.readAsArrayBuffer(file)
       } else {
         reader.readAsText(file)
       }
