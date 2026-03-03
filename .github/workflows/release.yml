@@ -492,24 +492,8 @@ jobs:
               FA="${{ env.FUNCTION_APP_NAME }}"
               LIST_URI="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/config/appsettings/list?api-version=2022-03-01"
               CURRENT=$(curl -s -X POST "$LIST_URI" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
-              # Build patch payload with new/updated keys only
-              PATCH=$(echo "$CURRENT" | python3 -c "
-import sys, json, os
-data = json.load(sys.stdin)
-props = data.get('properties', {})
-env_map = {
-  'AZURE_OPENAI_ENDPOINT':        os.environ.get('OAI_ENDPOINT',''),
-  'AZURE_OPENAI_DEPLOYMENT_NAME': os.environ.get('OAI_DEPLOYMENT',''),
-  'AZURE_OPENAI_API_VERSION':     os.environ.get('OAI_API_VERSION',''),
-  'AZURE_OPENAI_API_KEY':         os.environ.get('OAI_API_KEY',''),
-  'ENTRA_CLIENT_ID':              os.environ.get('ENTRA_CLIENT_ID',''),
-  'APPINSIGHTS_WORKSPACE_ID':     os.environ.get('AI_WORKSPACE_ID',''),
-}
-for k, v in env_map.items():
-    if v:
-        props[k] = v
-print(json.dumps({'properties': props}))
-")
+              # Build patch payload merging existing settings with new values
+              PATCH=$(echo "$CURRENT" | python3 -c "import sys,json,os; d=json.load(sys.stdin); p=d.get('properties',{}); m={'AZURE_OPENAI_ENDPOINT':os.environ.get('OAI_ENDPOINT',''),'AZURE_OPENAI_DEPLOYMENT_NAME':os.environ.get('OAI_DEPLOYMENT',''),'AZURE_OPENAI_API_VERSION':os.environ.get('OAI_API_VERSION',''),'AZURE_OPENAI_API_KEY':os.environ.get('OAI_API_KEY',''),'ENTRA_CLIENT_ID':os.environ.get('ENTRA_CLIENT_ID',''),'APPINSIGHTS_WORKSPACE_ID':os.environ.get('AI_WORKSPACE_ID','')};[p.update({k:v}) for k,v in m.items() if v];print(json.dumps({'properties':p}))")
               PUT_URI="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/config/appsettings?api-version=2022-03-01"
               curl -s -X PUT "$PUT_URI" \
                 -H "Authorization: Bearer $TOKEN" \
