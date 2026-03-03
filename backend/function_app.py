@@ -329,12 +329,53 @@ async def ocr_image(req: func.HttpRequest) -> func.HttpResponse:
         from agents.flow_agent import run_ocr
         text = await run_ocr(image, mime_type)
         return _json_response({"text": text})
+    except ValueError as exc:
+        # 未対応 MIME タイプ等の入力エラー → 400
+        return _error(str(exc), 400)
     except RuntimeError as exc:
         logger.error("OCR config error: %s", exc)
         return _error(str(exc), 500)
     except Exception as exc:
         logger.exception("OCR error")
         return _error(f"OCR error: {exc}", 500)
+
+
+# ---------------------------------------------------------------
+# POST /api/parse-document  – PDF / DOCX / PPTX / XLSX → Markdown
+# ---------------------------------------------------------------
+
+@app.route(route="parse-document", methods=["POST", "OPTIONS"])
+async def parse_document_api(req: func.HttpRequest) -> func.HttpResponse:
+    """Parse PDF/DOCX/PPTX/XLSX and return extracted text as Markdown."""
+    if req.method == "OPTIONS":
+        return _preflight()
+
+    try:
+        payload = req.get_json()
+    except ValueError:
+        return _error("Invalid JSON body")
+
+    content   = (payload.get("content") or "").strip()
+    file_name = (payload.get("fileName") or "").strip()
+    mime_type =  payload.get("mimeType") or ""
+
+    if not content:
+        return _error("'content' (base64) is required")
+    if not file_name:
+        return _error("'fileName' is required")
+
+    try:
+        from agents.flow_agent import parse_document
+        text = await parse_document(content, file_name, mime_type)
+        return _json_response({"text": text})
+    except ValueError as exc:
+        return _error(str(exc), 400)
+    except RuntimeError as exc:
+        logger.error("parse-document error: %s", exc)
+        return _error(str(exc), 500)
+    except Exception as exc:
+        logger.exception("parse-document unexpected error")
+        return _error(f"Parse error: {exc}", 500)
 
 
 # ---------------------------------------------------------------

@@ -644,6 +644,120 @@ async def run_ocr(image_data_url: str, mime_type: str = "image/png") -> str:
 
 
 # ─────────────────────────────────────────────────────────────
+# ドキュメント解析 (PDF / DOCX / PPTX / XLSX → Markdown)
+# ─────────────────────────────────────────────────────────────
+
+def _parse_pdf(raw: bytes) -> str:
+    from pypdf import PdfReader  # type: ignore
+    import io as _io
+    reader = PdfReader(_io.BytesIO(raw))
+    pages: list[str] = []
+    for i, page in enumerate(reader.pages, 1):
+        text = (page.extract_text() or "").strip()
+        if text:
+            pages.append(f"## ページ {i}\n\n{text}")
+    return "\n\n".join(pages) if pages else "（テキストなし）"
+
+
+def _parse_docx(raw: bytes) -> str:
+    from docx import Document  # type: ignore
+    import io as _io
+    doc = Document(_io.BytesIO(raw))
+    lines: list[str] = []
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if not text:
+            continue
+        style = para.style.name if para.style else ""
+        if "Heading 1" in style:
+            lines.append(f"# {text}")
+        elif "Heading 2" in style:
+            lines.append(f"## {text}")
+        elif "Heading 3" in style:
+            lines.append(f"### {text}")
+        else:
+            lines.append(text)
+    return "\n\n".join(lines) if lines else "（テキストなし）"
+
+
+def _parse_pptx(raw: bytes) -> str:
+    from pptx import Presentation  # type: ignore
+    import io as _io
+    prs = Presentation(_io.BytesIO(raw))
+    slides: list[str] = []
+    for i, slide in enumerate(prs.slides, 1):
+        texts: list[str] = []
+        for shape in slide.shapes:
+            if hasattr(shape, "text") and shape.text.strip():
+                texts.append(shape.text.strip())
+        if texts:
+            slides.append(f"## スライド {i}\n\n" + "\n\n".join(texts))
+    return "\n\n".join(slides) if slides else "（テキストなし）"
+
+
+def _parse_xlsx(raw: bytes) -> str:
+    from openpyxl import load_workbook  # type: ignore
+    import io as _io
+    wb = load_workbook(_io.BytesIO(raw), read_only=True, data_only=True)
+    result: list[str] = []
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        rows: list[str] = []
+        col_count = 0
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c) if c is not None else "" for c in row]
+            if any(cells):
+                if col_count == 0:
+                    col_count = len(cells)
+                rows.append("| " + " | ".join(cells) + " |")
+        if rows and col_count > 0:
+            sep = "| " + " | ".join(["---"] * col_count) + " |"
+            table = rows[0] + "\n" + sep + "\n" + "\n".join(rows[1:])
+            result.append(f"## シート: {sheet_name}\n\n{table}")
+    return "\n\n".join(result) if result else "（データなし）"
+
+
+async def parse_document(content_base64: str, filename: str, mime_type: str) -> str:
+    """
+    PDF/DOCX/PPTX/XLSX をパースして Markdown テキストを返す。
+    Raises ValueError for unsupported types.
+    """
+    import base64 as _b64
+    from pathlib import Path
+
+    ext = Path(filename).suffix.lower()
+
+    if mime_type == "application/pdf" or ext == ".pdf":
+        parser = _parse_pdf
+    elif (
+        mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        or ext == ".docx"
+    ):
+        parser = _parse_docx
+    elif (
+        mime_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        or ext == ".pptx"
+    ):
+        parser = _parse_pptx
+    elif (
+        mime_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        or ext == ".xlsx"
+    ):
+        parser = _parse_xlsx
+    else:
+        raise ValueError(
+            f"未対応ファイル形式: {mime_type or ext}\n"
+            "対応形式: PDF / DOCX / PPTX / XLSX"
+        )
+
+    raw = _b64.b64decode(content_base64)
+    try:
+        return parser(raw)
+    except Exception as exc:
+        raise RuntimeError(f"ドキュメント解析エラー: {exc}") from exc
+
+
+# ─────────────────────────────────────────────────────────────
 # Main entry point
 # ─────────────────────────────────────────────────────────────
 
