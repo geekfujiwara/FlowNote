@@ -26,6 +26,36 @@ import type { ChatMessage, AttachedFile } from '@/types'
 import { getTemplateById } from '@/lib/templates'
 import { runOcr } from '@/lib/mockApi'
 
+// Vision API がサポートするラスター形式（SVG 等ベクター画像はテキスト扱い）
+const OCR_SUPPORTED_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'])
+const isOcrSupportedImage = (mimeType: string) => OCR_SUPPORTED_MIME.has(mimeType)
+const isSvg = (mimeType: string, name: string) =>
+  mimeType === 'image/svg+xml' || name.toLowerCase().endsWith('.svg')
+
+/**
+ * SVG XML からテキスト要素（<text>, <tspan>, <title>, <desc>）を抽出する。
+ * サーバーを使わずブラウザ上で完結する。
+ */
+function extractSvgText(svgSource: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(svgSource, 'image/svg+xml')
+    const parserError = doc.querySelector('parsererror')
+    if (parserError) return ''
+    const tags = ['text', 'tspan', 'title', 'desc', 'textPath']
+    const texts: string[] = []
+    tags.forEach((tag) => {
+      doc.querySelectorAll(tag).forEach((el) => {
+        const t = el.textContent?.trim()
+        if (t) texts.push(t)
+      })
+    })
+    // 重複除去して改行で結合
+    return [...new Set(texts)].join('\n')
+  } catch {
+    return ''
+  }
+}
+
 interface ChatPanelProps {
   onOpenTemplates?: () => void
 }
@@ -87,7 +117,7 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
     }
   }
 
-  const ACCEPTED_TYPES = '.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css,.xml,.yaml,.yml,image/*'
+  const ACCEPTED_TYPES = '.txt,.md,.json,.csv,.ts,.tsx,.js,.jsx,.py,.html,.css,.xml,.yaml,.yml,.svg,image/*'
 
   /** 添付ファイルの一池を名前+contentで特实して更新するhelper */
   const updateFile = useCallback(
@@ -105,26 +135,39 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
     if (files.length === 0) return
 
     files.forEach((file) => {
-      const isImage = file.type.startsWith('image/')
+      const isImage = isOcrSupportedImage(file.type)
+      const isSvgFile = isSvg(file.type, file.name)
       const reader = new FileReader()
 
       reader.onload = (ev) => {
         const content = ev.target?.result as string
         const newFile: AttachedFile = {
           name: file.name,
-          mimeType: file.type || 'text/plain',
+          mimeType: file.type || (isSvgFile ? 'image/svg+xml' : 'text/plain'),
           content,
           size: file.size,
-          ocrStatus: isImage ? 'loading' : undefined,
-          ocrStartedAt: isImage ? Date.now() : undefined,
+          // ラスター画像はサーバー OCR、SVG はクライアント抽出、それ以外は不要
+          ocrStatus: (isImage || isSvgFile) ? 'loading' : undefined,
+          ocrStartedAt: (isImage || isSvgFile) ? Date.now() : undefined,
         }
         setAttachedFiles((prev) => [...prev, newFile])
 
-        // 画像添付直後にOCRを即時起動
         if (isImage) {
+          // ラスター画像: サーバー Vision API OCR
           runOcr(content, file.type)
             .then((ocrText) => updateFile(file.name, content, { ocrStatus: 'done', ocrText }))
             .catch(() => updateFile(file.name, content, { ocrStatus: 'error' }))
+        } else if (isSvgFile) {
+          // SVG: ブラウザ上で XML パースしてテキスト抽出（サーバー不要）
+          try {
+            const ocrText = extractSvgText(content)
+            updateFile(file.name, content, {
+              ocrStatus: 'done',
+              ocrText: ocrText || '（テキスト要素なし）',
+            })
+          } catch {
+            updateFile(file.name, content, { ocrStatus: 'error' })
+          }
         }
       }
 
@@ -255,7 +298,7 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
                   >
                     {/* 1行目: アイコン + ファイル名 + OCR状態 + 小サイズ + 削除 */}
                     <div className="flex items-center gap-1">
-                      {f.mimeType.startsWith('image/')
+                      {isOcrSupportedImage(f.mimeType)
                         ? <ImageIcon className="w-3 h-3 text-sky-400 shrink-0" />
                         : <FileText className="w-3 h-3 text-amber-400 shrink-0" />
                       }
@@ -393,7 +436,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           {message.attachedFiles && message.attachedFiles.length > 0 && (
             <div className={`mt-2 flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
               {message.attachedFiles.map((f, i) =>
-                f.mimeType.startsWith('image/') ? (
+                isOcrSupportedImage(f.mimeType) ? (
                   <img
                     key={i}
                     src={f.content}

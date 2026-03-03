@@ -340,20 +340,29 @@ export const useStore = create<FlowNoteState>()(
       const logId = uuidv4()
       const logTimestamp = new Date().toISOString()
 
+      // Vision API 対応のラスター形式（SVG 等ベクター画像はテキスト扱い）
+      const isRasterImage = (m: string) =>
+        ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp'].includes(m)
+      const isSvg = (f: AttachedFile) =>
+        f.mimeType === 'image/svg+xml' || f.name.toLowerCase().endsWith('.svg')
+
       // テキストファイルの内容をエージェントへ渡す補足コンテキストを構築
-      const textAttachments = attachedFiles?.filter(
-        (f) => !f.mimeType.startsWith('image/')
-      ) ?? []
-      // 画像のOCRテキストもエージェントへ渡す
+      // SVG はクライアント抽出済み ocrText を優先（生 XML は大きすぎるため）
+      const textAttachments = attachedFiles?.filter((f) => !isRasterImage(f.mimeType)) ?? []
+      // 画像のOCRテキスト（ラスター + SVG 両方）もエージェントへ渡す
       const imageOcrLines = attachedFiles
-        ?.filter((f) => f.mimeType.startsWith('image/') && f.ocrText)
-        .map((f) => `【${f.name}\uff08OCR抽出）】\n${f.ocrText}`)
+        ?.filter((f) => isRasterImage(f.mimeType) && f.ocrText)
+        .map((f) => `【${f.name}（OCR抽出）】\n${f.ocrText}`)
         .join('\n\n') ?? ''
 
       const attachmentContext =
         textAttachments.length || imageOcrLines
           ? '\n\n---\n添付ファイル:\n' +
-            textAttachments.map((f) => `【${f.name}】\n${f.content}`).join('\n\n') +
+            textAttachments.map((f) => {
+              // SVG: ocrText（抽出テキスト）があればそちらを使う
+              if (isSvg(f) && f.ocrText) return `【${f.name}（SVGテキスト抽出）】\n${f.ocrText}`
+              return `【${f.name}】\n${f.content}`
+            }).join('\n\n') +
             (imageOcrLines ? '\n\n' + imageOcrLines : '')
           : ''
 
@@ -371,7 +380,7 @@ export const useStore = create<FlowNoteState>()(
             name: f.name,
             mimeType: f.mimeType,
             size: f.size,
-            content: f.mimeType.startsWith('image/') ? f.content : undefined,
+            content: isRasterImage(f.mimeType) ? f.content : undefined,
           })),
         },
       }
