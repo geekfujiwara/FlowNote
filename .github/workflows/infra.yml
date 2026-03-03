@@ -11,18 +11,12 @@
 #   AZURE_RESOURCE_GROUP       Resource group name
 #
 # Run manually from Actions → "Deploy Infrastructure" → Run workflow.
-# Also runs automatically when infra/main.bicep changes.
 # ============================================================
 
 name: Deploy Infrastructure
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'infra/**'
 
 env:
   RESOURCE_GROUP:       ${{ secrets.AZURE_RESOURCE_GROUP }}
