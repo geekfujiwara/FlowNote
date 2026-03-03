@@ -5,6 +5,7 @@
 targetScope = 'resourceGroup'
 
 // ── Parameters ──────────────────────────────────────────────
+@minLength(3)
 @description('Base prefix for all resource names')
 param prefix string = 'flownote'
 
@@ -17,11 +18,8 @@ param location string = resourceGroup().location
 @description('Python runtime version for Function App')
 param pythonVersion string = '3.11'
 
-@description('GitHub repo URL (used for SWA metadata only)')
-param repositoryUrl string = 'https://github.com/geekfujiwara/FlowNote'
-
 @description('Azure OpenAI API version')
-param azureOpenAiApiVersion string = '2024-05-01-preview'
+param azureOpenAiApiVersion string = '2025-04-01-preview'
 
 @description('Azure OpenAI GlobalStandard capacity (TPM units)')
 param azureOpenAiCapacity int = 10
