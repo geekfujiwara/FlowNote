@@ -133,7 +133,7 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
     if ((!msg && attachedFiles.length === 0) || agentStatus === 'thinking' || isOcrRunning) return
     setInput('')
     setAttachedFiles([])
-    sendMessage(msg || '(添付ファイルを参照してください)', attachedFiles.length > 0 ? attachedFiles : undefined)
+    sendMessage(msg || '添付ファイルに基づいてフローを作成または更新してください。', attachedFiles.length > 0 ? attachedFiles : undefined)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
