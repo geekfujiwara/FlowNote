@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useCallback, useRef, useState } from 'react'
 import { useStore } from '@/store/useStore'
 import { Sidebar } from '@/components/sidebar/Sidebar'
 import { MarkdownEditor } from '@/components/editor/MarkdownEditor'
@@ -6,11 +6,12 @@ import { FlowCanvas } from '@/components/canvas/FlowCanvas'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { VersionHistoryPanel } from '@/components/canvas/VersionHistoryPanel'
 import { FlowMetadataPanel } from '@/components/shared/FlowMetadataPanel'
-import { Bot, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2, LayoutTemplate, ClipboardList } from 'lucide-react'
+import { Bot, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2, LayoutTemplate, ClipboardList, LogOut } from 'lucide-react'
 import { AgentLogViewer } from '@/components/chat/AgentLogViewer'
 import { AnalyticsPanel } from '@/components/analytics/AnalyticsPanel'
 import { TemplateGallery } from '@/components/templates/TemplateGallery'
 import { useMsal } from '@azure/msal-react'
+import { useAuthLogout } from '@/auth/AuthGuard'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
 
@@ -33,9 +34,28 @@ export function AppLayout() {
   const [editingTitle, setEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
   const titleInputRef = useRef<HTMLInputElement>(null)
-  const { accounts } = useMsal()
+  const { instance, accounts } = useMsal()
+  const passwordLogout = useAuthLogout()
 
   const userName = USE_MOCK ? 'Demo User' : (accounts[0]?.name ?? accounts[0]?.username ?? 'User')
+
+  // ログアウト処理:
+  //   パスワード認証モード → AuthLogoutContext 経由で sessionStorage をクリア
+  //   MSAL モード   → instance.logoutPopup() でポップアップログアウト
+  const handleLogout = useCallback(async () => {
+    if (passwordLogout) {
+      passwordLogout()
+      return
+    }
+    try {
+      await instance.logoutPopup()
+    } catch (err) {
+      console.error('[Auth] logout failed', err)
+      // フォールバック: セッションをクリアしてリロード
+      sessionStorage.clear()
+      window.location.reload()
+    }
+  }, [instance, passwordLogout])
   const isAgentMode = viewMode === 'agent'
 
   /** Called by TemplateGallery when user selects a prompt suggestion.
@@ -191,12 +211,20 @@ export function AppLayout() {
             <BarChart2 className="w-4 h-4" />
           </button>
 
-          {/* User avatar */}
+          {/* User avatar + logout */}
           <div className="flex items-center gap-2 pl-2 border-l border-zinc-700">
-            <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-medium text-white">
+            <div className="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-medium text-white shrink-0">
               {userName.charAt(0).toUpperCase()}
             </div>
             <span className="text-xs text-zinc-400 hidden sm:block max-w-24 truncate">{userName}</span>
+            <button
+              onClick={handleLogout}
+              className="p-1.5 rounded-md hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200 transition-colors"
+              title="ログアウト"
+              aria-label="ログアウト"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       </header>

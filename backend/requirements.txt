@@ -2,3 +2,5 @@ azure-functions
 azure-storage-blob>=12.19.0
 azure-identity>=1.16.0
 openai>=1.66.0
+# Entra ID idToken 検証用 (POST /api/auth/entra, GET /api/auth/me)
+PyJWT[cryptography]>=2.8.0

@@ -7,6 +7,8 @@ Endpoints:
   POST   /api/save           - Create or update a note
   DELETE /api/delete/{id}    - Delete a note
   POST   /api/agent/chat     - AI agent chat endpoint
+  POST   /api/auth/entra     - Entra ID idToken 検証，ユーザー情報返却
+  GET    /api/auth/me        - Authorization Bearer トークンを検証しユーザー情報返却
 """
 
 import json
@@ -333,6 +335,118 @@ async def ocr_image(req: func.HttpRequest) -> func.HttpResponse:
     except Exception as exc:
         logger.exception("OCR error")
         return _error(f"OCR error: {exc}", 500)
+
+
+# ---------------------------------------------------------------
+# 認証ヘルパー: Microsoft JWKS を使って Entra ID idToken を検証
+# ---------------------------------------------------------------
+
+def _verify_entra_token(id_token: str, entra_client_id: str) -> dict:
+    """
+    Entra ID（Azure AD）が発行した idToken を検証し、ペイロードを返す。
+    PyJWT[cryptography] が必要。
+    """
+    import base64 as _b64
+    import jwt as _jwt  # PyJWT
+    from jwt import PyJWKClient
+
+    parts = id_token.split(".")
+    if len(parts) < 2:
+        raise ValueError("Invalid token format")
+
+    # tid を unverified payload から取得（署名検証前）
+    padding = "=" * (4 - len(parts[1]) % 4)
+    raw = _b64.b64decode(parts[1] + padding)
+    raw_payload = json.loads(raw)
+    tid = raw_payload.get("tid", "common")
+
+    # Microsoft JWKS で署名検証
+    jwks_url = f"https://login.microsoftonline.com/{tid}/discovery/v2.0/keys"
+    jwks_client = PyJWKClient(jwks_url, cache_keys=True)
+    signing_key = jwks_client.get_signing_key_from_jwt(id_token)
+
+    payload = _jwt.decode(
+        id_token,
+        signing_key.key,
+        algorithms=["RS256"],
+        audience=entra_client_id,
+        issuer=f"https://login.microsoftonline.com/{tid}/v2.0",
+    )
+    return payload
+
+
+def _user_from_payload(payload: dict) -> dict:
+    """JWT ペイロードからユーザー情報を抽出。"""
+    name = payload.get("name") or payload.get("preferred_username") or ""
+    email = (payload.get("preferred_username") or payload.get("email") or "").lower()
+    oid = payload.get("oid") or payload.get("sub") or ""
+    return {"id": oid, "name": name, "email": email}
+
+
+# ---------------------------------------------------------------
+# POST /api/auth/entra  – Entra ID idToken 検証
+# ---------------------------------------------------------------
+
+@app.route(route="auth/entra", methods=["POST", "OPTIONS"])
+async def auth_entra(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    フロントエンドから受け取った MSAL idToken を検証し、
+    ユーザー基本情報（id/name/email）を返す。
+    """
+    if req.method == "OPTIONS":
+        return _preflight()
+
+    entra_client_id = os.environ.get("ENTRA_CLIENT_ID", "").strip()
+    if not entra_client_id:
+        return _error("ENTRA_CLIENT_ID is not configured on the server.", 500)
+
+    try:
+        body = req.get_json()
+    except ValueError:
+        return _error("Invalid JSON body")
+
+    id_token = (body.get("idToken") or "").strip()
+    if not id_token:
+        return _error("idToken is required", 400)
+
+    try:
+        payload = _verify_entra_token(id_token, entra_client_id)
+        user = _user_from_payload(payload)
+        logger.info("auth_entra: verified user %s (%s)", user.get("id"), user.get("email"))
+        return _json_response({"ok": True, "user": user})
+    except Exception as e:
+        logger.exception("auth_entra verification error")
+        return _error(f"Token verification failed: {e}", 401)
+
+
+# ---------------------------------------------------------------
+# GET /api/auth/me  – Bearer トークンから認証済みユーザー情報返却
+# ---------------------------------------------------------------
+
+@app.route(route="auth/me", methods=["GET", "OPTIONS"])
+async def auth_me(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Authorization: Bearer <idToken> ヘッダーを検証し、ユーザー情報を返す。
+    """
+    if req.method == "OPTIONS":
+        return _preflight()
+
+    entra_client_id = os.environ.get("ENTRA_CLIENT_ID", "").strip()
+    if not entra_client_id:
+        return _error("ENTRA_CLIENT_ID is not configured on the server.", 500)
+
+    auth_header = req.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return _error("Authorization header with Bearer token is required", 401)
+
+    id_token = auth_header[len("Bearer "):].strip()
+    try:
+        payload = _verify_entra_token(id_token, entra_client_id)
+        user = _user_from_payload(payload)
+        return _json_response({"ok": True, "user": user})
+    except Exception as e:
+        logger.exception("auth_me verification error")
+        return _error(f"Token verification failed: {e}", 401)
 
 
 # ---------------------------------------------------------------

@@ -20,14 +20,23 @@ async function sha256(text: string): Promise<string> {
     .join('')
 }
 
-const PW_SESSION_KEY = 'flownote_pw_auth'
+export const PW_SESSION_KEY = 'flownote_pw_auth'
+
+/**
+ * パスワード認証モードでログアウト関数を提供する Context。
+ * MSAL モードでは null。AppLayout から useAuthLogout() で消費する。
+ */
+export const AuthLogoutContext = React.createContext<(() => void) | null>(null)
+export function useAuthLogout() {
+  return React.useContext(AuthLogoutContext)
+}
 
 interface Props {
   children: React.ReactNode
 }
 
 export function AuthGuard({ children }: Props) {
-  const { instance, accounts } = useMsal()
+  const { instance } = useMsal()
   const isAuthenticated = useIsAuthenticated()
   const [loading, setLoading] = useState(true)
   const [pwAuthed, setPwAuthed] = useState(false)
@@ -46,19 +55,22 @@ export function AuthGuard({ children }: Props) {
           return
         }
 
-        await instance.initialize()
-        const result = await instance.handleRedirectPromise()
-        if (result && result.accessToken) {
-          sessionStorage.setItem('msal_token', result.accessToken)
-        } else if (accounts.length > 0) {
+        // ★ ポップアップフローでは handleRedirectPromise() は不要（呼ぶとハッシュが消費される）
+        // ★ initialize() は MsalProvider が内部で呼ぶため、ここでは呼ばない
+        // キャッシュ済みアカウントがあればサイレントでトークンを取得
+        const allAccounts = instance.getAllAccounts()
+        if (allAccounts.length > 0) {
           try {
             const silent = await instance.acquireTokenSilent({
               ...loginRequest,
-              account: accounts[0],
+              account: allAccounts[0],
             })
-            sessionStorage.setItem('msal_token', silent.accessToken)
+            sessionStorage.setItem(
+              'msal_token',
+              silent.idToken ?? silent.accessToken
+            )
           } catch {
-            // will prompt login
+            // サイレント取得失敗 → ログイン画面を表示
           }
         }
       } catch (err) {
@@ -68,12 +80,19 @@ export function AuthGuard({ children }: Props) {
       }
     }
     init()
-  }, [instance, accounts])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance])
 
   const handlePasswordSuccess = () => {
     sessionStorage.setItem(PW_SESSION_KEY, 'true')
     sessionStorage.setItem('msal_token', 'mock-token')
     setPwAuthed(true)
+  }
+
+  const handlePasswordLogout = () => {
+    sessionStorage.removeItem(PW_SESSION_KEY)
+    sessionStorage.removeItem('msal_token')
+    setPwAuthed(false)
   }
 
   if (loading) {
@@ -93,6 +112,16 @@ export function AuthGuard({ children }: Props) {
 
   if (!USE_PASSWORD_AUTH && !isAuthenticated) {
     return <MsalLoginScreen />
+  }
+
+  // ログアウトボタンを children に渡すため AuthContext 経由で提供する代わりに、
+  // PasswordAuth モードのログアウトはここで処理し、MSAL ログアウトは AppLayout で処理
+  if (USE_PASSWORD_AUTH && pwAuthed) {
+    return (
+      <AuthLogoutContext.Provider value={handlePasswordLogout}>
+        {children}
+      </AuthLogoutContext.Provider>
+    )
   }
 
   return <>{children}</>
@@ -207,13 +236,31 @@ function PasswordLoginScreen({ onSuccess }: { onSuccess: () => void }) {
 function MsalLoginScreen() {
   const { instance } = useMsal()
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const handleLogin = async () => {
     setLoading(true)
+    setError('')
     try {
-      await instance.loginRedirect(loginRequest)
-    } catch (err) {
+      // ★ loginRedirect ではなく loginPopup を使用（MSAL v5 ポップアップSSO）
+      await instance.loginPopup(loginRequest)
+      // loginPopup が resolve すると useIsAuthenticated() が true になり
+      // AuthGuard が children をレンダーする
+    } catch (err: unknown) {
       console.error('[Auth] login failed', err)
+      // interaction_in_progress エラーの場合はセッションをクリア
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('interaction_in_progress')) {
+        // 前回の認証が途中で中断された場合、sessionStorage の interaction.status を削除
+        Object.keys(sessionStorage)
+          .filter((k) => k.includes('interaction.status'))
+          .forEach((k) => sessionStorage.removeItem(k))
+        setError('前回のサインインが中断されました。再度お試しください。')
+      } else if (msg.includes('popup_window_error') || msg.includes('user_cancelled')) {
+        setError('サインインがキャンセルされました。')
+      } else {
+        setError('サインインに失敗しました。再度お試しください。')
+      }
       setLoading(false)
     }
   }
@@ -244,15 +291,19 @@ function MsalLoginScreen() {
         <button
           onClick={handleLogin}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 text-white font-medium rounded-lg transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-800 disabled:opacity-60 text-white font-medium rounded-lg transition-colors"
         >
           {loading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <LogIn className="w-4 h-4" />
           )}
-          <span>{loading ? 'リダイレクト中...' : 'Microsoft でサインイン'}</span>
+          <span>{loading ? 'サインイン中...' : 'Microsoft でサインイン'}</span>
         </button>
+
+        {error && (
+          <p className="text-xs text-red-400 text-center">{error}</p>
+        )}
 
         <p className="text-xs text-zinc-600 text-center">
           Microsoft Entra ID による認証が必要です
