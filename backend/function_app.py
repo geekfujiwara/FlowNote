@@ -491,6 +491,131 @@ async def auth_me(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # ---------------------------------------------------------------
+# GET /api/admin/analytics/users  – App Insights ユーザー活動集計 (管理者専用)
+# ---------------------------------------------------------------
+
+@app.route(route="admin/analytics/users", methods=["GET", "OPTIONS"])
+async def admin_analytics_users(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Azure Monitor Logs Query SDK で Application Insights にクエリし、
+    ユーザーごとのイベント集計を返す。
+    ENTRA_CLIENT_ID が設定されている場合、Bearer トークンを検証して管理者のみ許可する。
+    """
+    if req.method == "OPTIONS":
+        return _preflight()
+
+    # 管理者認証 (ENTRA_CLIENT_ID が設定済みの場合のみ)
+    entra_client_id = os.environ.get("ENTRA_CLIENT_ID", "").strip()
+    if entra_client_id:
+        auth_header = req.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return _error("Authorization header required", 401)
+        id_token = auth_header[len("Bearer "):].strip()
+        try:
+            payload = _verify_entra_token(id_token, entra_client_id)
+            user = _user_from_payload(payload)
+            if user.get("email") != "hfujiwara@microsoft.com":
+                return _error("Admin access required", 403)
+        except Exception as e:
+            logger.exception("admin_analytics_users auth error")
+            return _error(f"Token verification failed: {e}", 401)
+
+    workspace_id = os.environ.get("APPINSIGHTS_WORKSPACE_ID", "").strip()
+    if not workspace_id:
+        return _error("APPINSIGHTS_WORKSPACE_ID is not configured", 500)
+
+    try:
+        from azure.monitor.query import LogsQueryClient, LogsQueryStatus
+        from datetime import timedelta
+
+        credential = DefaultAzureCredential()
+        client = LogsQueryClient(credential)
+
+        # ユーザーごとの活動集計 (90日)
+        kql_users = """
+union customEvents, pageViews
+| where timestamp > ago(90d)
+| where isnotempty(user_AuthenticatedId)
+| summarize
+    totalEvents   = count(),
+    lastActivity  = max(timestamp),
+    firstActivity = min(timestamp),
+    activeDays    = dcount(bin(timestamp, 1d)),
+    noteCreated   = countif(name == 'note_created'),
+    noteSaved     = countif(name == 'note_saved'),
+    agentMessages = countif(name == 'agent_message_sent'),
+    templateApplied   = countif(name == 'template_applied'),
+    suggestionApplied = countif(name == 'suggestion_applied')
+  by user_AuthenticatedId
+| order by totalEvents desc
+| take 100
+        """
+
+        # ユーザーごとの30日間日別イベント数 (スパークライン用)
+        kql_daily = """
+union customEvents, pageViews
+| where timestamp > ago(30d)
+| where isnotempty(user_AuthenticatedId)
+| summarize count() by user_AuthenticatedId, day = format_datetime(bin(timestamp, 1d), 'yyyy-MM-dd')
+| order by user_AuthenticatedId, day
+        """
+
+        users_resp = client.query_workspace(
+            workspace_id=workspace_id,
+            query=kql_users,
+            timespan=timedelta(days=90),
+        )
+        daily_resp = client.query_workspace(
+            workspace_id=workspace_id,
+            query=kql_daily,
+            timespan=timedelta(days=30),
+        )
+
+        if users_resp.status != LogsQueryStatus.SUCCESS:
+            return _error("Users log query failed", 500)
+
+        # 日別データを email → [{day, count}] の辞書に変換
+        daily_map: dict = {}
+        if daily_resp.status == LogsQueryStatus.SUCCESS and daily_resp.tables:
+            daily_table = daily_resp.tables[0]
+            daily_cols = [c.name for c in daily_table.columns]
+            for row in daily_resp.tables[0].rows:
+                rd = dict(zip(daily_cols, row))
+                email = rd.get("user_AuthenticatedId", "")
+                daily_map.setdefault(email, []).append(
+                    {"day": rd.get("day", ""), "count": int(rd.get("count_", 0))}
+                )
+
+        users_table = users_resp.tables[0]
+        cols = [c.name for c in users_table.columns]
+        users: list = []
+        for row in users_resp.tables[0].rows:
+            rd = dict(zip(cols, row))
+            email = rd.get("user_AuthenticatedId", "")
+            last_ts = rd.get("lastActivity")
+            first_ts = rd.get("firstActivity")
+            users.append({
+                "email":            email,
+                "totalEvents":      int(rd.get("totalEvents", 0)),
+                "lastActivity":     last_ts.isoformat() if last_ts else None,
+                "firstActivity":    first_ts.isoformat() if first_ts else None,
+                "activeDays":       int(rd.get("activeDays", 0)),
+                "noteCreated":      int(rd.get("noteCreated", 0)),
+                "noteSaved":        int(rd.get("noteSaved", 0)),
+                "agentMessages":    int(rd.get("agentMessages", 0)),
+                "templateApplied":  int(rd.get("templateApplied", 0)),
+                "suggestionApplied": int(rd.get("suggestionApplied", 0)),
+                "dailyActivity":    daily_map.get(email, []),
+            })
+
+        return _json_response({"users": users, "source": "application_insights"})
+
+    except Exception as e:
+        logger.exception("admin_analytics_users query error")
+        return _error(f"Query failed: {e}", 500)
+
+
+# ---------------------------------------------------------------
 # GET /api/agent/health
 # ---------------------------------------------------------------
 

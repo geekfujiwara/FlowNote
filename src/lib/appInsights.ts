@@ -54,3 +54,16 @@ export function trackException(error: Error, properties?: Record<string, string>
 export function trackMetric(name: string, value: number) {
   _ai?.trackMetric({ name, average: value })
 }
+
+/**
+ * Set authenticated user context so App Insights records per-user telemetry.
+ * Call after login with the user's email / UPN.
+ */
+export function setAuthenticatedUserContext(userId: string, accountId?: string) {
+  _ai?.setAuthenticatedUserContext(userId, accountId, true)
+}
+
+/** Clear authenticated user context on logout */
+export function clearAuthenticatedUserContext() {
+  _ai?.clearAuthenticatedUserContext()
+}

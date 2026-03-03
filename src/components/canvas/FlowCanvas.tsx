@@ -15,6 +15,7 @@ import {
   type Edge,
   type NodeTypes,
   type ConnectionLineComponentProps,
+  type FinalConnectionState,
   BackgroundVariant,
   Position,
 } from '@xyflow/react'
@@ -237,6 +238,77 @@ function CompareSplitView({ beforeNodes, beforeEdges, afterNodes, afterEdges, on
   )
 }
 
+// ── Dialog: drop on empty canvas → create node ──────────────────────────────
+interface CreateNodeDropDialogProps {
+  onConfirm: (label: string) => void
+  onCancel: () => void
+}
+
+function CreateNodeDropDialog({ onConfirm, onCancel }: CreateNodeDropDialogProps) {
+  const [label, setLabel] = React.useState('')
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onConfirm(label.trim() || '新しいノード')
+  }
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl p-5 w-80 flex flex-col gap-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex flex-col gap-1">
+          <h3 className="text-sm font-semibold text-zinc-100">新しいノードを作成しますか？</h3>
+          <p className="text-xs text-zinc-400">
+            接続先のノードがありません。このまま新しいノードを作成して接続できます。
+          </p>
+        </div>
+
+        {/* Input */}
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <input
+            autoFocus
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="ノード名（省略可）"
+            className="w-full px-3 py-2 rounded-lg bg-zinc-800 border border-zinc-600
+              text-sm text-zinc-100 placeholder:text-zinc-500
+              focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+              transition"
+          />
+
+          {/* Actions */}
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium
+                bg-zinc-700 hover:bg-zinc-600 text-zinc-200 border border-zinc-600
+                transition-colors"
+            >
+              キャンセル
+            </button>
+            <button
+              type="submit"
+              className="px-3 py-1.5 rounded-lg text-xs font-medium
+                bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-500
+                transition-colors"
+            >
+              ノードを作成
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export function FlowCanvas() {
   return (
     <ReactFlowProvider>
@@ -263,7 +335,16 @@ function FlowCanvasInner() {
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowNodeData>>(storeNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(storeEdges)
-  const { fitView } = useReactFlow()
+  const { fitView, screenToFlowPosition } = useReactFlow()
+
+  // ─── Connection drag: "drop on empty canvas" → create node dialog ─────────
+  const connectingSourceId = React.useRef<string | null>(null)
+
+  type CreateNodeDialog = {
+    position: { x: number; y: number }
+    sourceNodeId: string | null
+  } | null
+  const [createNodeDialog, setCreateNodeDialog] = React.useState<CreateNodeDialog>(null)
 
   // Track previous node IDs (sorted) to detect structural changes (restore/apply)
   // vs shallow data changes (animation flag clear, drag position update).
@@ -315,6 +396,64 @@ function FlowCanvasInner() {
       if (!edges.find((e) => e.id === inspectorTarget.edge.id)) setInspectorTarget(null)
     }
   }, [nodes, edges]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onConnectStart = useCallback(
+    (_: React.MouseEvent | React.TouchEvent, params: { nodeId: string | null }) => {
+      connectingSourceId.current = params.nodeId
+    },
+    []
+  )
+
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+      // connectionState.isValid === false のとき、接続先がない（空白にドロップ）
+      if (!connectionState.isValid) {
+        const target = event.target as Element
+        const isPane = target.classList.contains('react-flow__pane')
+        if (isPane) {
+          const clientX = 'clientX' in event ? event.clientX : (event as TouchEvent).changedTouches[0].clientX
+          const clientY = 'clientY' in event ? event.clientY : (event as TouchEvent).changedTouches[0].clientY
+          const position = screenToFlowPosition({ x: clientX, y: clientY })
+          setCreateNodeDialog({ position, sourceNodeId: connectingSourceId.current })
+        }
+      }
+      connectingSourceId.current = null
+    },
+    [screenToFlowPosition]
+  )
+
+  const handleCreateNodeFromDrop = useCallback(
+    (label: string) => {
+      if (!createNodeDialog) return
+      const newNodeId = `node-${uuidv4()}`
+      const newNode: Node<FlowNodeData> = {
+        id: newNodeId,
+        type: 'flowNode',
+        position: {
+          x: createNodeDialog.position.x - 90,
+          y: createNodeDialog.position.y - 30,
+        },
+        data: { label: label || '新しいノード', nodeType: 'default', isChanged: false },
+      }
+      const updatedNodes = [...nodes, newNode]
+      let updatedEdges = edges
+      if (createNodeDialog.sourceNodeId) {
+        const newEdge: Edge = {
+          id: `e-${uuidv4()}`,
+          source: createNodeDialog.sourceNodeId,
+          target: newNodeId,
+          type: 'addNodeEdge',
+          animated: false,
+        }
+        updatedEdges = [...edges, newEdge]
+      }
+      setNodes(updatedNodes)
+      setEdges(updatedEdges)
+      applyCanvasEdit(updatedNodes, updatedEdges)
+      setCreateNodeDialog(null)
+    },
+    [createNodeDialog, nodes, edges, setNodes, setEdges, applyCanvasEdit]
+  )
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -457,6 +596,8 @@ function FlowCanvasInner() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
         onNodeDragStop={onNodeDragStop}
         onSelectionChange={onSelectionChange}
         onNodeClick={onNodeClick}
@@ -497,6 +638,14 @@ function FlowCanvasInner() {
           maskColor="rgba(0,0,0,0.4)"
         />
       </ReactFlow>
+
+      {/* Drop-on-empty-canvas → create node dialog */}
+      {createNodeDialog && (
+        <CreateNodeDropDialog
+          onConfirm={handleCreateNodeFromDrop}
+          onCancel={() => setCreateNodeDialog(null)}
+        />
+      )}
 
       {/* Node / Edge inspector panel */}
       <NodeEdgeInspector

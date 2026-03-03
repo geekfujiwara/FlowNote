@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '@/store/useStore'
 import { Sidebar } from '@/components/sidebar/Sidebar'
 import { MarkdownEditor } from '@/components/editor/MarkdownEditor'
@@ -13,6 +13,7 @@ import { UserManagementPanel } from '@/components/admin/UserManagementPanel'
 import { TemplateGallery } from '@/components/templates/TemplateGallery'
 import { useMsal } from '@azure/msal-react'
 import { useAuthLogout } from '@/auth/AuthGuard'
+import { setAuthenticatedUserContext, clearAuthenticatedUserContext } from '@/lib/appInsights'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
 
@@ -51,16 +52,25 @@ export function AppLayout() {
       ).toLowerCase()
   const isAdmin = userEmail === 'hfujiwara@microsoft.com'
 
+  // App Insights に認証済みユーザーを登録
+  useEffect(() => {
+    if (userEmail) {
+      setAuthenticatedUserContext(userEmail)
+    } else {
+      clearAuthenticatedUserContext()
+    }
+  }, [userEmail])
+
   // ログアウト処理:
   //   パスワード認証モード → AuthLogoutContext 経由で sessionStorage をクリア
-  //   MSAL モード   → instance.logoutPopup() でポップアップログアウト
+  //   MSAL モード   → instance.logoutRedirect() でリダイレクトログアウト（ポップアップなし）
   const handleLogout = useCallback(async () => {
     if (passwordLogout) {
       passwordLogout()
       return
     }
     try {
-      await instance.logoutPopup()
+      await instance.logoutRedirect()
     } catch (err) {
       console.error('[Auth] logout failed', err)
       // フォールバック: セッションをクリアしてリロード

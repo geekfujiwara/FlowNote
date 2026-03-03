@@ -210,8 +210,8 @@ export function AnalyticsPanel({ onClose }: Props) {
   ]
 
   return (
-    <div className="fixed inset-0 z-50 flex items-stretch bg-black/60 backdrop-blur-sm">
-      <div className="ml-auto w-full max-w-3xl bg-zinc-950 border-l border-zinc-800 flex flex-col h-full overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="w-[90%] max-h-[90vh] bg-zinc-950 border border-zinc-800 rounded-2xl flex flex-col overflow-hidden shadow-2xl">
 
         {/* ── Header ─────────────────────────────────────────── */}
         <header className="flex items-center gap-3 px-6 py-4 border-b border-zinc-800 shrink-0 bg-zinc-900">

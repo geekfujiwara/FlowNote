@@ -197,6 +197,11 @@ resource functionApp 'Microsoft.Web/sites@2023-12-01' = {
           value: appInsights.properties.ConnectionString
         }
         {
+          // Log Analytics workspace GUID – used by admin analytics endpoint to query App Insights logs
+          name: 'APPINSIGHTS_WORKSPACE_ID'
+          value: logAnalytics.properties.customerId
+        }
+        {
           // Blob URL for managed-identity-based storage access in Python backend
           name: 'STORAGE_ACCOUNT_URL'
           value: storage.properties.primaryEndpoints.blob
