@@ -6,9 +6,10 @@ import { FlowCanvas } from '@/components/canvas/FlowCanvas'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { VersionHistoryPanel } from '@/components/canvas/VersionHistoryPanel'
 import { FlowMetadataPanel } from '@/components/shared/FlowMetadataPanel'
-import { Bot, Github, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2, LayoutTemplate, ClipboardList, LogOut } from 'lucide-react'
+import { Bot, Github, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2, LayoutTemplate, ClipboardList, LogOut, ChartNoAxesColumn } from 'lucide-react'
 import { AgentLogViewer } from '@/components/chat/AgentLogViewer'
 import { AnalyticsPanel } from '@/components/analytics/AnalyticsPanel'
+import { UserManagementPanel } from '@/components/admin/UserManagementPanel'
 import { TemplateGallery } from '@/components/templates/TemplateGallery'
 import { useMsal } from '@azure/msal-react'
 import { useAuthLogout } from '@/auth/AuthGuard'
@@ -30,6 +31,7 @@ export function AppLayout() {
   const [viewMode, setViewMode] = useState<ViewMode>('agent')
   const [rightPanel, setRightPanel] = useState<'chat' | 'history' | 'log'>('chat')
   const [analyticsOpen, setAnalyticsOpen] = useState(false)
+  const [userMgmtOpen, setUserMgmtOpen] = useState(false)
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [editTitleValue, setEditTitleValue] = useState('')
@@ -38,6 +40,16 @@ export function AppLayout() {
   const passwordLogout = useAuthLogout()
 
   const userName = USE_MOCK ? 'Demo User' : (accounts[0]?.name ?? accounts[0]?.username ?? 'User')
+
+  // システム管理者チェック (hfujiwara@microsoft.com のみ)
+  const userEmail = USE_MOCK
+    ? ''
+    : (
+        accounts[0]?.username ||
+        (accounts[0]?.idTokenClaims?.preferred_username as string | undefined) ||
+        ''
+      ).toLowerCase()
+  const isAdmin = userEmail === 'hfujiwara@microsoft.com'
 
   // ログアウト処理:
   //   パスワード認証モード → AuthLogoutContext 経由で sessionStorage をクリア
@@ -202,14 +214,16 @@ export function AppLayout() {
             <LayoutTemplate className="w-4 h-4" />
           </button>
 
-          {/* Analytics button */}
-          <button
-            onClick={() => setAnalyticsOpen(true)}
-            className="p-1.5 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 transition-colors"
-            title="利用状況アナリティクス"
-          >
-            <BarChart2 className="w-4 h-4" />
-          </button>
+          {/* User management button – admin only */}
+          {isAdmin && (
+            <button
+              onClick={() => setUserMgmtOpen(true)}
+              className="p-1.5 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 transition-colors"
+              title="ユーザー管理 (管理者専用)"
+            >
+              <ChartNoAxesColumn className="w-4 h-4" />
+            </button>
+          )}
 
           {/* GitHub repository link */}
           <a
@@ -324,6 +338,15 @@ export function AppLayout() {
                   <ClipboardList className="w-3.5 h-3.5" />
                   ログ
                 </button>
+                {/* Analytics popup button */}
+                <button
+                  onClick={() => setAnalyticsOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-2.5 text-xs font-medium transition-colors border-b-2 border-transparent text-zinc-500 hover:text-zinc-300 shrink-0"
+                  title="利用状況アナリティクス"
+                >
+                  <BarChart2 className="w-3.5 h-3.5" />
+                  <span className="hidden lg:inline">分析</span>
+                </button>
               </div>
               {/* Panel content */}
               <div className="flex-1 overflow-hidden">
@@ -364,6 +387,9 @@ export function AppLayout() {
 
       {/* Analytics overlay */}
       {analyticsOpen && <AnalyticsPanel onClose={() => setAnalyticsOpen(false)} />}
+
+      {/* User management overlay – admin only */}
+      {userMgmtOpen && <UserManagementPanel onClose={() => setUserMgmtOpen(false)} />}
 
       {/* Template gallery overlay */}
       {templateGalleryOpen && (
