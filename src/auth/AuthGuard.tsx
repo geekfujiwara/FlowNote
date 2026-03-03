@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { loginRequest, hasMsalConfig } from './msalConfig'
-import { Eye, EyeOff, Layers, Lock, LogIn, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Github, Layers, Lock, LogIn, Loader2 } from 'lucide-react'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
 // Use password auth in mock mode OR when MSAL credentials are not configured
@@ -224,6 +224,17 @@ function PasswordLoginScreen({ onSuccess }: { onSuccess: () => void }) {
             <span>{loading ? '認証中...' : 'ログイン'}</span>
           </button>
         </form>
+
+        {/* GitHub link */}
+        <a
+          href="https://github.com/geekfujiwara/FlowNote"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+        >
+          <Github className="w-3.5 h-3.5" />
+          geekfujiwara/FlowNote
+        </a>
       </div>
     </div>
   )
@@ -308,6 +319,17 @@ function MsalLoginScreen() {
         <p className="text-xs text-zinc-600 text-center">
           Microsoft Entra ID による認証が必要です
         </p>
+
+        {/* GitHub link */}
+        <a
+          href="https://github.com/geekfujiwara/FlowNote"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+        >
+          <Github className="w-3.5 h-3.5" />
+          geekfujiwara/FlowNote
+        </a>
       </div>
     </div>
   )

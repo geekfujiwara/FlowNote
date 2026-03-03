@@ -6,7 +6,7 @@ import { FlowCanvas } from '@/components/canvas/FlowCanvas'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { VersionHistoryPanel } from '@/components/canvas/VersionHistoryPanel'
 import { FlowMetadataPanel } from '@/components/shared/FlowMetadataPanel'
-import { Bot, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2, LayoutTemplate, ClipboardList, LogOut } from 'lucide-react'
+import { Bot, Github, LayoutPanelLeft, Layers, MessageSquare, Menu, X, Wifi, WifiOff, History, BarChart2, LayoutTemplate, ClipboardList, LogOut } from 'lucide-react'
 import { AgentLogViewer } from '@/components/chat/AgentLogViewer'
 import { AnalyticsPanel } from '@/components/analytics/AnalyticsPanel'
 import { TemplateGallery } from '@/components/templates/TemplateGallery'
@@ -210,6 +210,18 @@ export function AppLayout() {
           >
             <BarChart2 className="w-4 h-4" />
           </button>
+
+          {/* GitHub repository link */}
+          <a
+            href="https://github.com/geekfujiwara/FlowNote"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-1.5 rounded-md hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 transition-colors"
+            title="GitHubリポジトリ"
+            aria-label="GitHubリポジトリ"
+          >
+            <Github className="w-4 h-4" />
+          </a>
 
           {/* User avatar + logout */}
           <div className="flex items-center gap-2 pl-2 border-l border-zinc-700">
