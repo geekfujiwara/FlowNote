@@ -458,11 +458,12 @@ jobs:
         # temporarily; settings are pre-set on first infra deploy.
         continue-on-error: true
         env:
-          OAI_ENDPOINT:     ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-          OAI_DEPLOYMENT:   ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
-          OAI_API_VERSION:  ${{ secrets.AZURE_OPENAI_API_VERSION }}
-          OAI_API_KEY:      ${{ secrets.AZURE_OPENAI_API_KEY }}
-          ENTRA_CLIENT_ID:  ${{ secrets.ENTRA_CLIENT_ID }}
+          OAI_ENDPOINT:             ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          OAI_DEPLOYMENT:           ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
+          OAI_API_VERSION:          ${{ secrets.AZURE_OPENAI_API_VERSION }}
+          OAI_API_KEY:              ${{ secrets.AZURE_OPENAI_API_KEY }}
+          ENTRA_CLIENT_ID:          ${{ secrets.ENTRA_CLIENT_ID }}
+          AI_WORKSPACE_ID:          ${{ secrets.APPINSIGHTS_WORKSPACE_ID }}
         run: |
           SETTINGS=()
           [ -n "$OAI_ENDPOINT" ]    && SETTINGS+=("AZURE_OPENAI_ENDPOINT=$OAI_ENDPOINT")
@@ -471,6 +472,8 @@ jobs:
           [ -n "$OAI_API_KEY" ]     && SETTINGS+=("AZURE_OPENAI_API_KEY=$OAI_API_KEY")
           # Entra ID client ID for idToken verification (POST /api/auth/entra, GET /api/auth/me)
           [ -n "$ENTRA_CLIENT_ID" ] && SETTINGS+=("ENTRA_CLIENT_ID=$ENTRA_CLIENT_ID")
+          # Log Analytics workspace GUID for admin analytics KQL queries
+          [ -n "$AI_WORKSPACE_ID" ] && SETTINGS+=("APPINSIGHTS_WORKSPACE_ID=$AI_WORKSPACE_ID")
           if [ ${#SETTINGS[@]} -gt 0 ]; then
             SUBSCRIPTION_ARGS=()
             if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
@@ -480,7 +483,39 @@ jobs:
               --name "${{ env.FUNCTION_APP_NAME }}" \
               --resource-group "${{ env.RESOURCE_GROUP }}" \
               "${SUBSCRIPTION_ARGS[@]}" \
-              --settings "${SETTINGS[@]}"
+              --settings "${SETTINGS[@]}" || \
+            # Fallback: use REST API for Flex Consumption plans where az CLI may fail
+            (
+              TOKEN=$(az account get-access-token --query accessToken -o tsv)
+              SUB="${{ env.SUBSCRIPTION_ID }}"
+              RG="${{ env.RESOURCE_GROUP }}"
+              FA="${{ env.FUNCTION_APP_NAME }}"
+              LIST_URI="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/config/appsettings/list?api-version=2022-03-01"
+              CURRENT=$(curl -s -X POST "$LIST_URI" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
+              # Build patch payload with new/updated keys only
+              PATCH=$(echo "$CURRENT" | python3 -c "
+import sys, json, os
+data = json.load(sys.stdin)
+props = data.get('properties', {})
+env_map = {
+  'AZURE_OPENAI_ENDPOINT':        os.environ.get('OAI_ENDPOINT',''),
+  'AZURE_OPENAI_DEPLOYMENT_NAME': os.environ.get('OAI_DEPLOYMENT',''),
+  'AZURE_OPENAI_API_VERSION':     os.environ.get('OAI_API_VERSION',''),
+  'AZURE_OPENAI_API_KEY':         os.environ.get('OAI_API_KEY',''),
+  'ENTRA_CLIENT_ID':              os.environ.get('ENTRA_CLIENT_ID',''),
+  'APPINSIGHTS_WORKSPACE_ID':     os.environ.get('AI_WORKSPACE_ID',''),
+}
+for k, v in env_map.items():
+    if v:
+        props[k] = v
+print(json.dumps({'properties': props}))
+")
+              PUT_URI="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/config/appsettings?api-version=2022-03-01"
+              curl -s -X PUT "$PUT_URI" \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$PATCH" | python3 -c "import sys,json; d=json.load(sys.stdin); print('REST appsettings updated, keys:', list(d.get('properties',{}).keys()))"
+            )
           fi
 
       - name: Verify Azure OpenAI app settings
