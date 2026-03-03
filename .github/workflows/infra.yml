@@ -1,0 +1,186 @@
+# ============================================================
+# FlowNote – Infrastructure Deployment Pipeline
+# Deploys infra/main.bicep to Azure and ensures the GitHub
+# Actions service principal has the roles it needs on the
+# Function App (Website Contributor → includes
+# Microsoft.Web/sites/config/read for CORS / appsettings).
+#
+# Required GitHub Secrets (same as release.yml):
+#   AZURE_CREDENTIALS          Service principal JSON
+#   AZURE_SUBSCRIPTION_ID      Azure subscription ID
+#   AZURE_RESOURCE_GROUP       Resource group name
+#
+# Run manually from Actions → "Deploy Infrastructure" → Run workflow.
+# Also runs automatically when infra/main.bicep changes.
+# ============================================================
+
+name: Deploy Infrastructure
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+
+env:
+  RESOURCE_GROUP:    ${{ secrets.AZURE_RESOURCE_GROUP }}
+  SUBSCRIPTION_ID:   ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  FUNCTION_APP_NAME: ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
+
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-infra:
+    name: Deploy Bicep + Grant SP Permissions
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # ── 1. Deploy Bicep template ───────────────────────────
+      - name: Deploy infra/main.bicep
+        run: |
+          az deployment group create \
+            --subscription "${{ env.SUBSCRIPTION_ID }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --template-file infra/main.bicep \
+            --mode Incremental \
+            --output table
+          echo "✅ Bicep deployment completed"
+
+      # ── 2. Grant GitHub Actions SP: Website Contributor ────
+      # Website Contributor (de139f84-1756-47ae-9be6-808fbbe84772)
+      # includes Microsoft.Web/sites/config/read which is required by
+      #   az functionapp cors add/show
+      #   az functionapp config appsettings list
+      # in the release pipeline.
+      # Idempotent – safe to re-run; existing assignments are left as-is.
+      - name: Grant SP Website Contributor on Function App
+        continue-on-error: true
+        env:
+          AZURE_CREDS_JSON: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          # Derive SP object ID from the AZURE_CREDENTIALS clientId (via env var – never echoed)
+          CLIENT_ID=$(echo "$AZURE_CREDS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['clientId'])")
+          echo "::add-mask::$CLIENT_ID"
+          SP_OID=$(az ad sp show --id "$CLIENT_ID" --query id --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$SP_OID" ]; then
+            echo "::warning::Could not resolve SP object ID from AZURE_CREDENTIALS – skipping role assignment"
+            exit 0
+          fi
+          echo "SP object ID: $SP_OID"
+
+          FUNC_ID=$(az functionapp show \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --subscription "${{ env.SUBSCRIPTION_ID }}" \
+            --query id --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$FUNC_ID" ]; then
+            echo "::warning::Function App '${{ env.FUNCTION_APP_NAME }}' not found – infra may still be provisioning"
+            exit 0
+          fi
+
+          WEBSITE_CONTRIBUTOR="de139f84-1756-47ae-9be6-808fbbe84772"
+
+          # Check if role already assigned
+          EXISTING=$(az role assignment list \
+            --scope "$FUNC_ID" \
+            --assignee "$SP_OID" \
+            --role "$WEBSITE_CONTRIBUTOR" \
+            --subscription "${{ env.SUBSCRIPTION_ID }}" \
+            --query "[0].id" --output tsv 2>/dev/null || echo "")
+
+          if [ -n "$EXISTING" ]; then
+            echo "✅ Website Contributor already assigned to SP on Function App"
+          else
+            az role assignment create \
+              --scope "$FUNC_ID" \
+              --assignee-object-id "$SP_OID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "$WEBSITE_CONTRIBUTOR" \
+              --subscription "${{ env.SUBSCRIPTION_ID }}"
+            echo "✅ Website Contributor granted to SP on Function App"
+            echo "Waiting 60s for RBAC propagation..."
+            sleep 60
+          fi
+
+      # ── 3. Verify SP can read Function App config ──────────
+      # ── 3. Grant GitHub Actions SP: Storage Account Contributor ──
+      # Required by storage-network-schedule.yml (nightly enable/disable)
+      # and release.yml's "Ensure storage public network access is Enabled" step.
+      # Without this the SP gets AuthorizationFailed on storageAccounts/read|write.
+      - name: Grant SP Storage Account Contributor on Storage Account
+        continue-on-error: true
+        env:
+          AZURE_CREDS_JSON: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          CLIENT_ID=$(echo "$AZURE_CREDS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin)['clientId'])")
+          echo "::add-mask::$CLIENT_ID"
+          SP_OID=$(az ad sp show --id "$CLIENT_ID" --query id --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$SP_OID" ]; then
+            echo "::warning::Could not resolve SP object ID – skipping Storage Account Contributor assignment"
+            exit 0
+          fi
+
+          STORAGE_ID=$(az storage account show \
+            --name flownoteprodst \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --subscription "${{ env.SUBSCRIPTION_ID }}" \
+            --query id --output tsv 2>/dev/null || echo "")
+
+          if [ -z "$STORAGE_ID" ]; then
+            echo "::warning::Storage account 'flownoteprodst' not found – skipping"
+            exit 0
+          fi
+
+          STORAGE_CONTRIB="17d1049b-9a84-46fb-8f53-869881c3d3ab"
+
+          EXISTING=$(az role assignment list \
+            --scope "$STORAGE_ID" \
+            --assignee "$SP_OID" \
+            --role "$STORAGE_CONTRIB" \
+            --subscription "${{ env.SUBSCRIPTION_ID }}" \
+            --query "[0].id" --output tsv 2>/dev/null || echo "")
+
+          if [ -n "$EXISTING" ]; then
+            echo "✅ Storage Account Contributor already assigned to SP"
+          else
+            az role assignment create \
+              --scope "$STORAGE_ID" \
+              --assignee-object-id "$SP_OID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "$STORAGE_CONTRIB" \
+              --subscription "${{ env.SUBSCRIPTION_ID }}"
+            echo "✅ Storage Account Contributor granted to SP"
+          fi
+
+      # ── 4. Verify SP can read Function App config ──────────
+      - name: Verify SP has sites/config/read
+        continue-on-error: true
+        run: |
+          CORS=$(az functionapp cors show \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --subscription "${{ env.SUBSCRIPTION_ID }}" \
+            --query allowedOrigins --output tsv 2>/dev/null || echo "")
+          if [ -n "$CORS" ]; then
+            echo "✅ SP can read Function App config. Allowed origins: $CORS"
+          else
+            echo "::warning::Could not verify CORS – either no origins are set or permission not yet propagated"
+          fi
+
+      - name: Azure Logout
+        if: always()
+        run: az logout 2>/dev/null || true
