@@ -453,9 +453,10 @@ jobs:
           echo "Current allowed origins: $ORIGINS"
 
       - name: Configure Azure OpenAI and Entra ID app settings
-        # Sets ENTRA_CLIENT_ID for /api/auth/entra and /api/auth/me endpoints,
-        # plus Azure OpenAI settings. Uses ARM REST API directly because
-        # 'az functionapp config appsettings set' fails on Flex Consumption plans.
+        # Sets all required Function App environment variables using ARM REST API directly.
+        # NOTE: 'az functionapp config appsettings set' fails on Flex Consumption plans.
+        # NOTE: GET /config/appsettings/list may return empty in CI (network restrictions),
+        #       so we enumerate ALL required settings explicitly to avoid silent wipeout.
         continue-on-error: true
         env:
           OAI_ENDPOINT:             ${{ secrets.AZURE_OPENAI_ENDPOINT }}
@@ -469,15 +470,26 @@ jobs:
           SUB="${{ env.SUBSCRIPTION_ID }}"
           RG="${{ env.RESOURCE_GROUP }}"
           FA="${{ env.FUNCTION_APP_NAME }}"
-          LIST_URI="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/config/appsettings/list?api-version=2022-03-01"
-          CURRENT=$(curl -s -X POST "$LIST_URI" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
-          echo "Current settings keys: $(echo "$CURRENT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(list(d.get('properties',{}).keys()))")"
-          PATCH=$(echo "$CURRENT" | python3 -c "import sys,json,os; d=json.load(sys.stdin); p=d.get('properties',{}); m={'AZURE_OPENAI_ENDPOINT':os.environ.get('OAI_ENDPOINT',''),'AZURE_OPENAI_DEPLOYMENT_NAME':os.environ.get('OAI_DEPLOYMENT',''),'AZURE_OPENAI_API_VERSION':os.environ.get('OAI_API_VERSION',''),'AZURE_OPENAI_API_KEY':os.environ.get('OAI_API_KEY',''),'ENTRA_CLIENT_ID':os.environ.get('ENTRA_CLIENT_ID',''),'APPINSIGHTS_WORKSPACE_ID':os.environ.get('AI_WORKSPACE_ID','')};[p.update({k:v}) for k,v in m.items() if v];print(json.dumps({'properties':p}))")
+          # Derive storage account name from Function App name convention: <prefix><env>st
+          # e.g. flownote-prod-func → flownoteprodst
+          SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-20)st
+          echo "Storage account name: $SA_NAME"
+          # Derive App Insights name: <prefix>-<env>-appi
+          APPI_NAME=$(echo "${FA}" | sed 's/-func$/-appi/')
+          AI_CONN=$(az monitor app-insights component show \
+            --app "$APPI_NAME" \
+            --resource-group "$RG" \
+            --subscription "$SUB" \
+            --query connectionString -o tsv 2>/dev/null || echo "")
+          echo "App Insights conn string obtained: $([ -n "$AI_CONN" ] && echo 'yes' || echo 'no')"
+          # Merge all settings (Bicep-managed + CI-managed) into one PUT
+          PATCH=$(python3 -c "import json,os; sa=os.environ.get('SA_NAME',''); ai=os.environ.get('AI_CONN',''); p={'AzureWebJobsStorage__accountName':sa,'APPLICATIONINSIGHTS_CONNECTION_STRING':ai,'APPINSIGHTS_WORKSPACE_ID':os.environ.get('AI_WORKSPACE_ID',''),'STORAGE_ACCOUNT_URL':'https://'+sa+'.blob.core.windows.net/','NOTES_CONTAINER':'notes','AZURE_OPENAI_ENDPOINT':os.environ.get('OAI_ENDPOINT',''),'AZURE_OPENAI_DEPLOYMENT_NAME':os.environ.get('OAI_DEPLOYMENT',''),'AZURE_OPENAI_API_VERSION':os.environ.get('OAI_API_VERSION',''),'AZURE_OPENAI_API_KEY':os.environ.get('OAI_API_KEY',''),'ENTRA_CLIENT_ID':os.environ.get('ENTRA_CLIENT_ID',''),'OTEL_SDK_DISABLED':'true'}; p={k:v for k,v in p.items() if v}; print(json.dumps({'properties':p}))" SA_NAME="$SA_NAME" AI_CONN="$AI_CONN")
           PUT_URI="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/config/appsettings?api-version=2022-03-01"
-          curl -s -X PUT "$PUT_URI" \
+          RESULT=$(curl -s -X PUT "$PUT_URI" \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
-            -d "$PATCH" | python3 -c "import sys,json; d=json.load(sys.stdin); print('Appsettings updated, keys:', sorted(d.get('properties',{}).keys()))"
+            -d "$PATCH")
+          echo "Appsettings PUT result keys: $(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(sorted(d.get('properties',{}).keys()))" 2>/dev/null || echo "parse error: $RESULT")"
 
       - name: Verify Azure OpenAI app settings
         # continue-on-error: RBAC may still be propagating after SP Contributor assignment.
