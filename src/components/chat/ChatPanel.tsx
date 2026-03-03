@@ -280,7 +280,7 @@ export function ChatPanel({ onOpenTemplates }: ChatPanelProps) {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {chatMessages.length === 0 && !pendingSuggestion && (
-              <EmptyState onSuggestion={(s) => { setInput(s); sendMessage(s) }} suggestions={SUGGESTIONS} />
+              <EmptyState onSuggestion={(s) => { sendMessage(s) }} suggestions={SUGGESTIONS} />
             )}
 
             {chatMessages.map((msg) => (

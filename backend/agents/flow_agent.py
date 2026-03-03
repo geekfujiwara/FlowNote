@@ -140,14 +140,19 @@ Call these tools to manipulate the flow:
 After applying changes, respond with ONLY this valid JSON (no markdown fences, no extra text):
 {
   "markdown": "<complete Markdown document including title, prose, and updated ```flow block>",
-  "summary": "<Japanese: 1-2 sentence description of what changed>",
+  "summary": "<Japanese: description of what changed, or full flow explanation if user asked to explain>",
   "nodesDelta": <integer>,
   "edgesDelta": <integer>,
   "changedNodeIds": ["<id>", ...],
   "changedEdgeIds": ["<e-source-target>", ...]
 }
 
-If the request is unclear or no change is needed, return the original markdown with nodesDelta=0.
+If the user asks to **explain, describe, or summarize** the current flow (no structural change requested),
+set `markdown` to the unchanged original, `nodesDelta`/`edgesDelta` to 0, and write a **detailed Japanese
+explanation** of the flow's structure, purpose, and node/edge relationships in the `summary` field.
+Do NOT just say the diagram was not changed — actually explain the flow content.
+
+If the request is unclear, return the original markdown with nodesDelta=0 and a brief note in `summary`.
 """
 
 # Keep a module-level alias so tests / other modules can reference SYSTEM_PROMPT
