@@ -409,8 +409,6 @@ jobs:
             --name "${{ env.FUNCTION_APP_NAME }}" \
             --src-path func-package.zip \
             --type zip \
-            --build-remote false \
-            --async false \
             "${SUBSCRIPTION_ARGS[@]}"
           echo "✅ Deployment submitted"
 
