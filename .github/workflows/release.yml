@@ -320,9 +320,10 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Ensure storage public network access is Enabled for deployment
-        # FC1 Flex Consumption deployment: Kudu uploads the zip to the deployments blob container
-        # using the Function App's managed identity. Even with bypass=AzureServices the upload
-        # requires publicNetworkAccess=Enabled when no VNet service endpoint is configured.
+        # FC1 Flex Consumption deployment: The ARM onedeploy API uploads the zip to the
+        # deployments blob container using the Function App's managed identity. Even with
+        # bypass=AzureServices the upload requires publicNetworkAccess=Enabled when no
+        # VNet service endpoint is configured.
         # This step ensures it is on before deploy and the nightly schedule can safely disable it.
         # continue-on-error: SP may lack Storage Account Contributor; storage is pre-set to Enabled.
         continue-on-error: true
@@ -345,8 +346,8 @@ jobs:
           echo "✅ Storage public network access: Enabled (bypass: AzureServices,Logging,Metrics)"
 
       - name: Ensure Function App managed identity has Storage Blob Data Owner
-        # Kudu in FC1 uses the Function App's system-assigned managed identity to upload
-        # the deployment zip to the blob container. Without this role the upload returns 403.
+        # The ARM onedeploy API for FC1 uses the Function App's system-assigned managed identity
+        # to upload the deployment zip to the blob container. Without this role the upload returns 403.
         # This step verifies the role exists and creates it (with 90s propagation wait) if absent.
         # continue-on-error: SP may lack permission to read storage/role-assignments; role
         # was already assigned manually and the deployment should succeed regardless.
@@ -402,10 +403,11 @@ jobs:
           fi
 
       - name: Deploy to Azure Functions
-        # Flex Consumption (FC1): deploy via Kudu Bearer-token auth, constructing the SCM
-        # URL directly from FUNCTION_APP_NAME to avoid GET /sites/{name} which requires
-        # Microsoft.Web/sites/read. Follows the same pattern as infra.yml: construct ARM
-        # identifiers directly to avoid chicken-and-egg permission issues.
+        # Deploy via ARM management API (PUT extensions/onedeploy) to avoid DNS issues
+        # with the SCM endpoint. The ARM URL is constructed directly from known parameters
+        # without requiring Microsoft.Web/sites/read. Works for all plan types including
+        # Flex Consumption (FC1). The ARM endpoint is always DNS-resolvable at
+        # management.azure.com and uses the Bearer token from the Azure CLI session.
         # Required permission: Microsoft.Web/sites/write (subset of Website Contributor).
         run: |
           TOKEN=$(az account get-access-token \
@@ -413,14 +415,14 @@ jobs:
             --query accessToken \
             --output tsv)
           echo "::add-mask::$TOKEN"
-          KUDU_URL="https://${{ env.FUNCTION_APP_NAME }}.scm.azurewebsites.net/api/zipdeploy"
+          DEPLOY_URL="https://management.azure.com/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.FUNCTION_APP_NAME }}/extensions/onedeploy?api-version=2023-12-01&type=zip&remoteBuild=false"
           HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
             --max-time 600 \
-            -X POST \
+            -X PUT \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/octet-stream" \
             --data-binary @func-package.zip \
-            "${KUDU_URL}?isAsync=false")
+            "$DEPLOY_URL")
           if [[ "$HTTP_STATUS" != "200" ]] && [[ "$HTTP_STATUS" != "202" ]]; then
             echo "::error::Deployment failed with HTTP $HTTP_STATUS"
             cat /tmp/deploy-response.txt || true
