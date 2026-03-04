@@ -42,7 +42,7 @@ export function AppLayout() {
 
   const userName = USE_MOCK ? 'Demo User' : (accounts[0]?.name ?? accounts[0]?.username ?? 'User')
 
-  // システム管理者チェック (hfujiwara@microsoft.com のみ)
+  // システム管理者チェック (VITE_ADMIN_EMAILS 環境変数で設定)
   const userEmail = USE_MOCK
     ? ''
     : (
@@ -50,7 +50,11 @@ export function AppLayout() {
         (accounts[0]?.idTokenClaims?.preferred_username as string | undefined) ||
         ''
       ).toLowerCase()
-  const isAdmin = userEmail === 'hfujiwara@microsoft.com'
+  const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((e: string) => e.trim().toLowerCase())
+    .filter(Boolean)
+  const isAdmin = adminEmails.length > 0 && adminEmails.includes(userEmail)
 
   // App Insights に認証済みユーザーを登録
   useEffect(() => {

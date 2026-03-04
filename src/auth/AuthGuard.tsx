@@ -67,7 +67,7 @@ export function AuthGuard({ children }: Props) {
             })
             sessionStorage.setItem(
               'msal_token',
-              silent.idToken ?? silent.accessToken
+              silent.idToken || silent.accessToken
             )
           } catch {
             // サイレント取得失敗 → ログイン画面を表示

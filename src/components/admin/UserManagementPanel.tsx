@@ -308,7 +308,7 @@ export function UserManagementPanel({ onClose }: Props) {
             ...loginRequest,
             account: accounts[0],
           })
-          token = silent.idToken ?? silent.accessToken
+          token = silent.idToken || silent.accessToken
         } catch (silentErr) {
           console.warn('[UserMgmt] acquireTokenSilent failed:', silentErr)
         }
