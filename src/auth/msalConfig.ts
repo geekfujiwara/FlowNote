@@ -1,4 +1,4 @@
-import { Configuration, PublicClientApplication, LogLevel } from '@azure/msal-browser'
+import { type AccountInfo, type IPublicClientApplication, Configuration, PublicClientApplication, LogLevel } from '@azure/msal-browser'
 
 // VITE_ENTRA_CLIENT_ID（推奨）または VITE_MSAL_CLIENT_ID（後方互換）を使用
 const clientId = (
@@ -55,6 +55,36 @@ export const msalConfig: Configuration = {
 
 export const loginRequest = {
   scopes: ['openid', 'profile', 'email'],
+}
+
+/**
+ * MSAL から ID トークンを安全に取得するヘルパー。
+ * acquireTokenSilent で idToken が空の場合（トークンリフレッシュ時に ID トークンが
+ * 返却されないケースがある）、forceRefresh: true でリトライする。
+ * Microsoft Graph 用の accessToken をバックエンド API 認証に使用するのを防ぐ。
+ */
+export async function acquireIdToken(
+  instance: IPublicClientApplication,
+  account: AccountInfo,
+): Promise<string> {
+  // 1. 通常のサイレント取得
+  const silent = await instance.acquireTokenSilent({
+    ...loginRequest,
+    account,
+  })
+  if (silent.idToken) return silent.idToken
+
+  // 2. idToken が空の場合、forceRefresh で再取得を試みる
+  console.warn('[MSAL] idToken empty after acquireTokenSilent, retrying with forceRefresh')
+  const refreshed = await instance.acquireTokenSilent({
+    ...loginRequest,
+    account,
+    forceRefresh: true,
+  })
+  if (refreshed.idToken) return refreshed.idToken
+
+  // 3. それでも取得できない場合はエラー（accessToken にフォールバックしない）
+  throw new Error('ID token could not be acquired. Please sign in again.')
 }
 
 // ★ ポップアップコールバックウィンドウでは MSAL インスタンスを初期化しない

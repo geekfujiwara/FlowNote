@@ -441,6 +441,17 @@ def _verify_entra_token(id_token: str, entra_client_id: str) -> dict:
     raw = _b64.b64decode(parts[1] + padding)
     raw_payload = json.loads(raw)
     tid = raw_payload.get("tid", "common")
+    actual_aud = raw_payload.get("aud", "<unknown>")
+
+    # Microsoft Graph access token の早期検出（フロントエンドのトークン取得バグ）
+    MS_GRAPH_AUD = "00000003-0000-0000-c000-000000000000"
+    if actual_aud == MS_GRAPH_AUD or actual_aud == "https://graph.microsoft.com":
+        raise ValueError(
+            f"Audience doesn't match: token is a Microsoft Graph token "
+            f"(aud={actual_aud}), not an application token. "
+            f"The frontend should send an ID token (aud={entra_client_id}), "
+            f"not a Graph access token."
+        )
 
     # Microsoft JWKS で署名検証
     jwks_url = f"https://login.microsoftonline.com/{tid}/discovery/v2.0/keys"
@@ -449,21 +460,34 @@ def _verify_entra_token(id_token: str, entra_client_id: str) -> dict:
 
     # ID トークン (aud=client_id) とアクセストークン (aud=api://client_id) の両方を試みる
     audiences = [entra_client_id, f"api://{entra_client_id}"]
+    # V2 と V1 の両方の issuer を試みる
+    issuers = [
+        f"https://login.microsoftonline.com/{tid}/v2.0",
+        f"https://sts.windows.net/{tid}/",
+    ]
     last_err: Exception = ValueError("No audience matched")
     for aud in audiences:
-        try:
-            payload = _jwt.decode(
-                id_token,
-                signing_key.key,
-                algorithms=["RS256"],
-                audience=aud,
-                issuer=f"https://login.microsoftonline.com/{tid}/v2.0",
-            )
-            return payload
-        except _jwt.InvalidAudienceError as e:
-            last_err = e
-            continue
-    raise last_err
+        for issuer in issuers:
+            try:
+                payload = _jwt.decode(
+                    id_token,
+                    signing_key.key,
+                    algorithms=["RS256"],
+                    audience=aud,
+                    issuer=issuer,
+                )
+                return payload
+            except (_jwt.InvalidAudienceError, _jwt.InvalidIssuerError) as e:
+                last_err = e
+                continue
+    logger.warning(
+        "Token audience mismatch: token aud=%s, expected %s or %s",
+        actual_aud, entra_client_id, f"api://{entra_client_id}",
+    )
+    raise ValueError(
+        f"Audience doesn't match: token has aud={actual_aud}, "
+        f"expected {entra_client_id} or api://{entra_client_id}"
+    )
 
 
 def _user_from_payload(payload: dict) -> dict:
