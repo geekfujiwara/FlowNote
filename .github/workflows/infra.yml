@@ -9,6 +9,8 @@
 #   AZURE_CREDENTIALS          Service principal JSON
 #   AZURE_SUBSCRIPTION_ID      Azure subscription ID
 #   AZURE_RESOURCE_GROUP       Resource group name
+#   AZURE_FUNCTIONAPP_NAME     Function App name
+#   AZURE_STORAGE_ACCOUNT_NAME Storage account name
 #
 # Run manually from Actions → "Deploy Infrastructure" → Run workflow.
 # ============================================================
@@ -22,9 +24,7 @@ env:
   RESOURCE_GROUP:       ${{ secrets.AZURE_RESOURCE_GROUP }}
   SUBSCRIPTION_ID:      ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   FUNCTION_APP_NAME:    ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
-  # Storage account name mirrors Bicep: take(replace('${prefix}${environment}st','-',''),24)
-  # prefix=flownote, environment=prod → flownoteprodst
-  STORAGE_ACCOUNT_NAME: flownoteprodst
+  STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
 
 concurrency:
   group: infra-${{ github.ref }}

@@ -6,9 +6,10 @@
 #   21:00 (12:00 UTC) → Disabled に設定
 #
 # Required Secrets:
-#   AZURE_CREDENTIALS     – Service principal JSON (clientId, clientSecret, tenantId, subscriptionId)
-#   AZURE_SUBSCRIPTION_ID – Azure subscription ID
-#   AZURE_RESOURCE_GROUP  – Resource group name (e.g. rg-flownote)
+#   AZURE_CREDENTIALS          – Service principal JSON (clientId, clientSecret, tenantId, subscriptionId)
+#   AZURE_SUBSCRIPTION_ID      – Azure subscription ID
+#   AZURE_RESOURCE_GROUP       – Resource group name (e.g. rg-flownote)
+#   AZURE_STORAGE_ACCOUNT_NAME – Storage account name (e.g. flownoteprodst)
 # ============================================================
 name: Storage Network Access Schedule
 
@@ -30,9 +31,7 @@ on:
 env:
   RESOURCE_GROUP:       ${{ secrets.AZURE_RESOURCE_GROUP }}
   SUBSCRIPTION_ID:      ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  # Storage account name mirrors Bicep: take(replace('${prefix}${environment}st','-',''),24)
-  # prefix=flownote, environment=prod → flownoteprodst
-  STORAGE_ACCOUNT_NAME: flownoteprodst
+  STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
 
 jobs:
   manage-network-access:
