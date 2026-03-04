@@ -331,6 +331,10 @@ jobs:
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
             SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
           fi
+          if [ -z "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
+            echo "::warning::STORAGE_ACCOUNT_NAME is not set – skipping storage public network access update"
+            exit 0
+          fi
           az storage account update \
             --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
@@ -351,6 +355,10 @@ jobs:
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
             SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          fi
+          if [ -z "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
+            echo "::warning::STORAGE_ACCOUNT_NAME is not set – skipping managed identity storage role check"
+            exit 0
           fi
 
           # Get the Function App's managed identity principal ID
@@ -459,9 +467,13 @@ jobs:
           SUB="${{ env.SUBSCRIPTION_ID }}"
           RG="${{ env.RESOURCE_GROUP }}"
           FA="${{ env.FUNCTION_APP_NAME }}"
-          # Derive storage account name from Function App name convention: <prefix><env>st
-          # e.g. flownote-prod-func → flownoteprodst
-          SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-20)st
+          # Use AZURE_STORAGE_ACCOUNT_NAME secret when set; fall back to name derived
+          # from Function App name convention: <prefix><env>st (e.g. flownote-prod-func → flownoteprodst)
+          if [ -n "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
+            SA_NAME="${{ env.STORAGE_ACCOUNT_NAME }}"
+          else
+            SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-20)st
+          fi
           echo "Storage account name: $SA_NAME"
           # Derive App Insights name: <prefix>-<env>-appi
           APPI_NAME=$(echo "${FA}" | sed 's/-func$/-appi/')
