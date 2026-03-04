@@ -438,7 +438,7 @@ jobs:
             SA_NAME="${{ env.STORAGE_ACCOUNT_NAME }}"
           else
             FA="${{ env.FUNCTION_APP_NAME }}"
-            SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-20)st
+            SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-22)st
             echo "::warning::STORAGE_ACCOUNT_NAME not set – derived storage account name: $SA_NAME"
           fi
 
@@ -559,7 +559,7 @@ jobs:
           if [ -n "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
             SA_NAME="${{ env.STORAGE_ACCOUNT_NAME }}"
           else
-            SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-20)st
+            SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-22)st
           fi
           echo "Storage account name: $SA_NAME"
           # Derive App Insights name: <prefix>-<env>-appi
