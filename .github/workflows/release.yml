@@ -7,8 +7,8 @@
 #   AZURE_SUBSCRIPTION_ID              Azure subscription ID
 #   AZURE_RESOURCE_GROUP               Resource group name (e.g. rg-flownote)
 #   AZURE_FUNCTIONAPP_NAME             Function App name (e.g. flownote-prod-func)
-#   AZURE_FUNCTIONAPP_PUBLISH_PROFILE  Function App SCM publish profile XML
-#                                      (az functionapp deployment list-publishing-profiles --xml)
+#   AZURE_STORAGE_ACCOUNT_NAME         Storage account name (e.g. flownoteprodst)
+#   AZURE_SWA_NAME                     Static Web App name (e.g. flownote-prod-swa)
 #   AZURE_STATIC_WEB_APPS_API_TOKEN    SWA deploy token (fetched from Azure if AZURE_CREDENTIALS is set)
 #   VITE_API_BASE_URL                  Azure Functions URL
 #   LOGIN_PASSWORD                     Plain-text login password (hashed to SHA-256 at build time)
@@ -45,10 +45,8 @@ env:
   RESOURCE_GROUP:        ${{ secrets.AZURE_RESOURCE_GROUP }}
   SUBSCRIPTION_ID:       ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   FUNCTION_APP_NAME:     ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
-  SWA_NAME:              flownote-prod-swa
-  # Storage account name mirrors Bicep: take(replace('${prefix}${environment}st','-',''),24)
-  # prefix=flownote, environment=prod → flownoteprodst
-  STORAGE_ACCOUNT_NAME:  flownoteprodst
+  SWA_NAME:              ${{ secrets.AZURE_SWA_NAME }}
+  STORAGE_ACCOUNT_NAME:  ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
   NODE_VERSION:          '20'
   PYTHON_VERSION:        '3.11'
 
@@ -396,32 +394,21 @@ jobs:
           fi
 
       - name: Deploy to Azure Functions
-        # Flex Consumption (FC1): use pre-stored SCM credentials (Basic Auth).
-        # Credentials are stored in AZURE_FUNCTIONAPP_SCM_USER / SCM_PASS secrets.
-        # Basic Auth was enabled via az rest and admin credentials outside CI.
-        env:
-          SCM_USER: ${{ secrets.AZURE_FUNCTIONAPP_SCM_USER }}
-          SCM_PASS: ${{ secrets.AZURE_FUNCTIONAPP_SCM_PASS }}
-          SCM_HOST: flownote-prod-func.scm.azurewebsites.net
+        # Flex Consumption (FC1): use the authenticated service principal (azure/login above)
+        # via az functionapp deployment source config-zip. This avoids SCM Basic Auth
+        # (which may be disabled) and works with any plan type without extra credentials.
         run: |
-          DEPLOY_URL="https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
-          echo "Deploying to: https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
-
-          HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" \
-            -X POST "$DEPLOY_URL" \
-            -u "${SCM_USER}:${SCM_PASS}" \
-            -H "Content-Type: application/zip" \
-            --data-binary @func-package.zip)
-
-          echo "HTTP Response: $HTTP_STATUS"
-          cat /tmp/deploy-response.json 2>/dev/null || true
-
-          if [[ "$HTTP_STATUS" =~ ^2 ]]; then
-            echo "✅ Deployment succeeded (HTTP $HTTP_STATUS)"
-          else
-            echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
-            exit 1
+          SUBSCRIPTION_ARGS=()
+          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
           fi
+          az functionapp deployment source config-zip \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ env.FUNCTION_APP_NAME }}" \
+            "${SUBSCRIPTION_ARGS[@]}" \
+            --src func-package.zip \
+            --build-remote false
+          echo "✅ Deployment succeeded"
 
       - name: Configure Function App CORS
         # Ensure CORS wildcard is set on the deployed Function App on every release.
