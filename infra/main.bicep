@@ -25,16 +25,16 @@ param azureOpenAiApiVersion string = '2025-04-01-preview'
 param azureOpenAiCapacity int = 10
 
 @description('Azure OpenAI model deployment name')
-param azureOpenAiDeploymentName string = 'gpt-5.2-chat'
+param azureOpenAiDeploymentName string = 'gpt-4o-mini'
 
 @description('Azure OpenAI model name')
-param azureOpenAiModelName string = 'gpt-5.1-codex-mini'
+param azureOpenAiModelName string = 'gpt-4o-mini'
 
 @description('Azure OpenAI model version')
-param azureOpenAiModelVersion string = '2025-11-13'
+param azureOpenAiModelVersion string = '2024-08-06'
 
 @description('Azure OpenAI endpoint (overrides discovered endpoint; use APIM gateway URL if applicable)')
-param azureOpenAiEndpointOverride string = 'https://aig01.azure-api.net/geekfndrypj-resource'
+param azureOpenAiEndpointOverride string = ''
 
 // ── Name variables ───────────────────────────────────────────
 var suffix             = '${prefix}-${environment}'
