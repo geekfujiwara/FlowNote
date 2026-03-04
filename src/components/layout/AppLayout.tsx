@@ -54,7 +54,8 @@ export function AppLayout() {
     .split(',')
     .map((e: string) => e.trim().toLowerCase())
     .filter(Boolean)
-  const isAdmin = adminEmails.length > 0 && adminEmails.includes(userEmail)
+  // モック時は管理者ボタンを常に表示（開発・デモ用）
+  const isAdmin = USE_MOCK ? adminEmails.length > 0 : adminEmails.length > 0 && adminEmails.includes(userEmail)
 
   // App Insights に認証済みユーザーを登録
   useEffect(() => {
