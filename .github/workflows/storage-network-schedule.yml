@@ -28,11 +28,6 @@ on:
           - enable
           - disable
 
-env:
-  RESOURCE_GROUP:       ${{ secrets.AZURE_RESOURCE_GROUP }}
-  SUBSCRIPTION_ID:      ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
-
 jobs:
   manage-network-access:
     runs-on: ubuntu-latest
@@ -58,12 +53,12 @@ jobs:
         run: |
           echo "▶ publicNetworkAccess=Enabled に設定します..."
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
           az storage account update \
-            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --public-network-access Enabled \
             --bypass AzureServices Logging Metrics \
@@ -75,12 +70,12 @@ jobs:
         run: |
           echo "▶ publicNetworkAccess=Disabled に設定します..."
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
           az storage account update \
-            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --public-network-access Disabled \
             --bypass AzureServices Logging Metrics \
@@ -90,12 +85,12 @@ jobs:
       - name: Verify settings
         run: |
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
           az storage account show \
-            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --query "{publicNetworkAccess:publicNetworkAccess, bypass:networkRuleSet.bypass, defaultAction:networkRuleSet.defaultAction}" \
             -o table

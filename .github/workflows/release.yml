@@ -42,11 +42,6 @@ on:
   workflow_dispatch:
 
 env:
-  RESOURCE_GROUP:        ${{ secrets.AZURE_RESOURCE_GROUP }}
-  SUBSCRIPTION_ID:       ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  FUNCTION_APP_NAME:     ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
-  SWA_NAME:              ${{ secrets.AZURE_SWA_NAME }}
-  STORAGE_ACCOUNT_NAME:  ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
   NODE_VERSION:          '20'
   PYTHON_VERSION:        '3.11'
 
@@ -229,12 +224,12 @@ jobs:
         if: ${{ needs.check-secrets.outputs.has_azure_creds == 'true' }}
         run: |
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
           TOKEN=$(az staticwebapp secrets list \
-            --name "${{ env.SWA_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_SWA_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --query "properties.apiKey" \
             --output tsv 2>/dev/null || true)
@@ -249,7 +244,7 @@ jobs:
       - name: Assert SWA token exists
         run: |
           if [ -z "${SWA_DEPLOY_TOKEN:-}" ]; then
-            echo "::error::No SWA deploy token available. Set AZURE_STATIC_WEB_APPS_API_TOKEN or ensure AZURE_CREDENTIALS has access to '${{ env.SWA_NAME }}'."
+            echo "::error::No SWA deploy token available. Set AZURE_STATIC_WEB_APPS_API_TOKEN or ensure AZURE_CREDENTIALS has access to '${{ secrets.AZURE_SWA_NAME }}'."
             exit 1
           fi
 
@@ -329,16 +324,16 @@ jobs:
         continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
-          if [ -z "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
+          if [ -z "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" ]; then
             echo "::warning::STORAGE_ACCOUNT_NAME is not set – skipping storage public network access update"
             exit 0
           fi
           az storage account update \
-            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --public-network-access Enabled \
             --bypass AzureServices Logging Metrics \
@@ -354,18 +349,18 @@ jobs:
         continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
-          if [ -z "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
+          if [ -z "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" ]; then
             echo "::warning::STORAGE_ACCOUNT_NAME is not set – skipping managed identity storage role check"
             exit 0
           fi
 
           # Get the Function App's managed identity principal ID
           PRINCIPAL_ID=$(az functionapp identity show \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_FUNCTIONAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --query principalId --output tsv 2>/dev/null || echo "")
           if [ -z "$PRINCIPAL_ID" ]; then
@@ -376,8 +371,8 @@ jobs:
 
           # Get storage resource ID
           STORAGE_ID=$(az storage account show \
-            --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --query id --output tsv)
 
@@ -415,7 +410,7 @@ jobs:
             --query accessToken \
             --output tsv)
           echo "::add-mask::$TOKEN"
-          DEPLOY_URL="https://management.azure.com/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.FUNCTION_APP_NAME }}/extensions/onedeploy?api-version=2023-12-01&type=zip&remoteBuild=false"
+          DEPLOY_URL="https://management.azure.com/subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ secrets.AZURE_RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ secrets.AZURE_FUNCTIONAPP_NAME }}/extensions/onedeploy?api-version=2023-12-01&type=zip&remoteBuild=false"
           HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
             --max-time 600 \
             -X PUT \
@@ -442,21 +437,21 @@ jobs:
         continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
           # Add wildcard CORS origin (idempotent – safe to re-run)
           az functionapp cors add \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_FUNCTIONAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --allowed-origins '*'
           echo "✅ CORS configured: allowed-origins = *"
 
           # Verify
           ORIGINS=$(az functionapp cors show \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_FUNCTIONAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --query "allowedOrigins" --output tsv 2>/dev/null || true)
           echo "Current allowed origins: $ORIGINS"
@@ -476,13 +471,13 @@ jobs:
           AI_WORKSPACE_ID:          ${{ secrets.APPINSIGHTS_WORKSPACE_ID }}
         run: |
           TOKEN=$(az account get-access-token --query accessToken -o tsv)
-          SUB="${{ env.SUBSCRIPTION_ID }}"
-          RG="${{ env.RESOURCE_GROUP }}"
-          FA="${{ env.FUNCTION_APP_NAME }}"
+          SUB="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+          RG="${{ secrets.AZURE_RESOURCE_GROUP }}"
+          FA="${{ secrets.AZURE_FUNCTIONAPP_NAME }}"
           # Use AZURE_STORAGE_ACCOUNT_NAME secret when set; fall back to name derived
           # from Function App name convention: <prefix><env>st (e.g. flownote-prod-func → flownoteprodst)
-          if [ -n "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
-            SA_NAME="${{ env.STORAGE_ACCOUNT_NAME }}"
+          if [ -n "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" ]; then
+            SA_NAME="${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}"
           else
             SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-20)st
           fi
@@ -509,24 +504,24 @@ jobs:
         continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
           ENDPOINT=$(az functionapp config appsettings list \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_FUNCTIONAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --query "[?name=='AZURE_OPENAI_ENDPOINT'].value | [0]" \
             --output tsv 2>/dev/null || true)
           DEPLOYMENT=$(az functionapp config appsettings list \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_FUNCTIONAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --query "[?name=='AZURE_OPENAI_DEPLOYMENT_NAME'].value | [0]" \
             --output tsv 2>/dev/null || true)
           API_VER=$(az functionapp config appsettings list \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_FUNCTIONAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --query "[?name=='AZURE_OPENAI_API_VERSION'].value | [0]" \
             --output tsv 2>/dev/null || true)

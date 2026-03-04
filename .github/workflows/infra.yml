@@ -20,12 +20,6 @@ name: Deploy Infrastructure
 on:
   workflow_dispatch:
 
-env:
-  RESOURCE_GROUP:       ${{ secrets.AZURE_RESOURCE_GROUP }}
-  SUBSCRIPTION_ID:      ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  FUNCTION_APP_NAME:    ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
-  STORAGE_ACCOUNT_NAME: ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
-
 concurrency:
   group: infra-${{ github.ref }}
   cancel-in-progress: true
@@ -47,12 +41,12 @@ jobs:
       - name: Deploy infra/main.bicep
         run: |
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
           az deployment group create \
             "${SUBSCRIPTION_ARGS[@]}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             --template-file infra/main.bicep \
             --mode Incremental \
             --output table
@@ -82,20 +76,20 @@ jobs:
           echo "SP object ID: $SP_OID"
 
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
 
           # Derive subscription ID: prefer env var, fall back to current account.
           # Constructing the ARM resource ID directly avoids the chicken-and-egg where
           # az functionapp show requires Microsoft.Web/sites/read – which the SP may not
           # have yet (it's the very permission we are about to grant here).
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUB_ID="${{ env.SUBSCRIPTION_ID }}"
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUB_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           else
             SUB_ID=$(az account show --query id -o tsv)
           fi
-          FUNC_ID="/subscriptions/${SUB_ID}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.FUNCTION_APP_NAME }}"
+          FUNC_ID="/subscriptions/${SUB_ID}/resourceGroups/${{ secrets.AZURE_RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ secrets.AZURE_FUNCTIONAPP_NAME }}"
           echo "Function App resource ID: $FUNC_ID"
 
           WEBSITE_CONTRIBUTOR="de139f84-1756-47ae-9be6-808fbbe84772"
@@ -140,23 +134,23 @@ jobs:
             exit 0
           fi
 
-          if [ -z "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
+          if [ -z "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" ]; then
             echo "::warning::STORAGE_ACCOUNT_NAME is not set – skipping Storage Account Contributor assignment"
             exit 0
           fi
 
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
 
           # Construct ARM resource ID directly to avoid needing read access to look up the resource.
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUB_ID="${{ env.SUBSCRIPTION_ID }}"
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUB_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           else
             SUB_ID=$(az account show --query id -o tsv)
           fi
-          STORAGE_ID="/subscriptions/${SUB_ID}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.Storage/storageAccounts/${{ env.STORAGE_ACCOUNT_NAME }}"
+          STORAGE_ID="/subscriptions/${SUB_ID}/resourceGroups/${{ secrets.AZURE_RESOURCE_GROUP }}/providers/Microsoft.Storage/storageAccounts/${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}"
           echo "Storage account resource ID: $STORAGE_ID"
 
           STORAGE_CONTRIB="17d1049b-9a84-46fb-8f53-869881c3d3ab"
@@ -185,12 +179,12 @@ jobs:
         continue-on-error: true
         run: |
           SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          if [ -n "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+            SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
           CORS=$(az functionapp cors show \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_FUNCTIONAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
             "${SUBSCRIPTION_ARGS[@]}" \
             --query allowedOrigins --output tsv 2>/dev/null || echo "")
           if [ -n "$CORS" ]; then
