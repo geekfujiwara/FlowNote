@@ -328,7 +328,7 @@ jobs:
             SUBSCRIPTION_ARGS+=(--subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}")
           fi
           if [ -z "${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}" ]; then
-            echo "::warning::STORAGE_ACCOUNT_NAME is not set – skipping storage public network access update"
+            echo "::warning::AZURE_STORAGE_ACCOUNT_NAME GitHub secret is not set – skipping storage public network access update"
             exit 0
           fi
           az storage account update \
