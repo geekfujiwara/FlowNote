@@ -28,6 +28,9 @@
 #   AZURE_OPENAI_DEPLOYMENT_NAME       Model deployment name (e.g. gpt-4o-mini)
 #   AZURE_OPENAI_API_VERSION           API version (e.g. 2025-04-01-preview)
 #   AZURE_OPENAI_API_KEY               APIM subscription key (omit to use Managed Identity)
+#   AZURE_DEPLOYMENT_CONTAINER         Blob container name for FC1 deployment packages (default: deployments)
+#   NODE_VERSION                       Node.js version for frontend build (default: 20)
+#   PYTHON_VERSION                     Python version for backend build (default: 3.11)
 #
 # If no Azure secrets are configured the workflow still runs CI (lint + test)
 # and builds in mock mode – deploy steps are skipped gracefully.
@@ -47,9 +50,9 @@ env:
   FUNCTION_APP_NAME:     ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
   SWA_NAME:              ${{ secrets.AZURE_SWA_NAME }}
   STORAGE_ACCOUNT_NAME:  ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
-  DEPLOYMENT_CONTAINER:  deployments
-  NODE_VERSION:          '20'
-  PYTHON_VERSION:        '3.11'
+  DEPLOYMENT_CONTAINER:  ${{ secrets.AZURE_DEPLOYMENT_CONTAINER || 'deployments' }}
+  NODE_VERSION:          ${{ secrets.NODE_VERSION || '20' }}
+  PYTHON_VERSION:        ${{ secrets.PYTHON_VERSION || '3.11' }}
 
 # Cancel in-progress runs triggered by the same branch
 concurrency:
