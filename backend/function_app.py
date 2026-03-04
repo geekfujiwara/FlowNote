@@ -384,7 +384,9 @@ async def parse_document_api(req: func.HttpRequest) -> func.HttpResponse:
 
 def _verify_entra_token(id_token: str, entra_client_id: str) -> dict:
     """
-    Entra ID（Azure AD）が発行した idToken を検証し、ペイロードを返す。
+    Entra ID（Azure AD）が発行した idToken または accessToken を検証し、ペイロードを返す。
+    - ID トークン: audience = entra_client_id (UUID 形式)
+    - アクセストークン: audience = api://{entra_client_id} (カスタム API スコープ形式)
     PyJWT[cryptography] が必要。
     """
     import base64 as _b64
@@ -406,20 +408,35 @@ def _verify_entra_token(id_token: str, entra_client_id: str) -> dict:
     jwks_client = PyJWKClient(jwks_url, cache_keys=True)
     signing_key = jwks_client.get_signing_key_from_jwt(id_token)
 
-    payload = _jwt.decode(
-        id_token,
-        signing_key.key,
-        algorithms=["RS256"],
-        audience=entra_client_id,
-        issuer=f"https://login.microsoftonline.com/{tid}/v2.0",
-    )
-    return payload
+    # ID トークン (aud=client_id) とアクセストークン (aud=api://client_id) の両方を試みる
+    audiences = [entra_client_id, f"api://{entra_client_id}"]
+    last_err: Exception = ValueError("No audience matched")
+    for aud in audiences:
+        try:
+            payload = _jwt.decode(
+                id_token,
+                signing_key.key,
+                algorithms=["RS256"],
+                audience=aud,
+                issuer=f"https://login.microsoftonline.com/{tid}/v2.0",
+            )
+            return payload
+        except _jwt.InvalidAudienceError as e:
+            last_err = e
+            continue
+    raise last_err
 
 
 def _user_from_payload(payload: dict) -> dict:
-    """JWT ペイロードからユーザー情報を抽出。"""
+    """JWT ペイロードからユーザー情報を抽出。ID トークンとアクセストークンの両方に対応。"""
     name = payload.get("name") or payload.get("preferred_username") or ""
-    email = (payload.get("preferred_username") or payload.get("email") or "").lower()
+    # preferred_username (ID token / access token), upn (access token), email (ID token optional)
+    email = (
+        payload.get("preferred_username") or
+        payload.get("upn") or
+        payload.get("email") or
+        ""
+    ).lower()
     oid = payload.get("oid") or payload.get("sub") or ""
     return {"id": oid, "name": name, "email": email}
 
@@ -515,7 +532,9 @@ async def admin_analytics_users(req: func.HttpRequest) -> func.HttpResponse:
         try:
             payload = _verify_entra_token(id_token, entra_client_id)
             user = _user_from_payload(payload)
-            if user.get("email") != "hfujiwara@microsoft.com":
+            admin_emails_raw = os.environ.get("ADMIN_EMAILS", "").strip()
+            admin_emails = {e.strip().lower() for e in admin_emails_raw.split(",") if e.strip()}
+            if admin_emails and user.get("email", "") not in admin_emails:
                 return _error("Admin access required", 403)
         except Exception as e:
             logger.exception("admin_analytics_users auth error")
