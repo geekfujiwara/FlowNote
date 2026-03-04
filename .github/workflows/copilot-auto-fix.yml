@@ -1,0 +1,59 @@
+# ============================================================
+# FlowNote – Copilot Auto-Fix
+# When any workflow in this repository fails, this workflow
+# automatically opens a GitHub Issue describing the failure
+# and assigns GitHub Copilot so it can propose a fix.
+# ============================================================
+
+name: Copilot Auto Fix on Workflow Failure
+
+on:
+  workflow_run:
+    workflows:
+      - "FlowNote Release"
+      - "Deploy Infrastructure"
+      - "Storage Network Schedule"
+    types:
+      - completed
+
+jobs:
+  create-fix-issue:
+    name: Create fix issue and assign Copilot
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+    permissions:
+      issues: write
+
+    steps:
+      - name: Create issue and assign Copilot
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${run.id}`;
+
+            const title = `🤖 CI failure: ${run.name} (#${run.id})`;
+            const body = [
+              `## Workflow failure detected`,
+              ``,
+              `| Field | Value |`,
+              `|---|---|`,
+              `| **Workflow** | ${run.name} |`,
+              `| **Run Number** | [#${run.run_number}](${runUrl}) |`,
+              `| **Branch** | \`${run.head_branch}\` |`,
+              `| **Commit** | \`${run.head_sha.slice(0, 7)}\` |`,
+              `| **Triggered by** | \`${run.event}\` |`,
+              `| **Conclusion** | \`${run.conclusion}\` |`,
+              ``,
+              `Please investigate the [failed run](${runUrl}) and apply the necessary fix.`,
+            ].join('\n');
+
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              assignees: ['copilot'],
+            });
+
+            core.info(`Created issue #${issue.number}: ${issue.html_url}`);
