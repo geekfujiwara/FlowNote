@@ -28,6 +28,9 @@
 #   AZURE_OPENAI_DEPLOYMENT_NAME       Model deployment name (e.g. gpt-4o-mini)
 #   AZURE_OPENAI_API_VERSION           API version (e.g. 2025-04-01-preview)
 #   AZURE_OPENAI_API_KEY               APIM subscription key (omit to use Managed Identity)
+#   AZURE_DEPLOYMENT_CONTAINER         Blob container name for FC1 deployment packages (default: deployments)
+#   NODE_VERSION                       Node.js version for frontend build (default: 20)
+#   PYTHON_VERSION                     Python version for backend build (default: 3.11)
 #
 # If no Azure secrets are configured the workflow still runs CI (lint + test)
 # and builds in mock mode – deploy steps are skipped gracefully.
@@ -47,8 +50,9 @@ env:
   FUNCTION_APP_NAME:     ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
   SWA_NAME:              ${{ secrets.AZURE_SWA_NAME }}
   STORAGE_ACCOUNT_NAME:  ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
-  NODE_VERSION:          '20'
-  PYTHON_VERSION:        '3.11'
+  DEPLOYMENT_CONTAINER:  ${{ secrets.AZURE_DEPLOYMENT_CONTAINER || 'deployments' }}
+  NODE_VERSION:          ${{ secrets.NODE_VERSION || '20' }}
+  PYTHON_VERSION:        ${{ secrets.PYTHON_VERSION || '3.11' }}
 
 # Cancel in-progress runs triggered by the same branch
 concurrency:
@@ -408,27 +412,93 @@ jobs:
         # without requiring Microsoft.Web/sites/read. Works for all plan types including
         # Flex Consumption (FC1). The ARM endpoint is always DNS-resolvable at
         # management.azure.com and uses the Bearer token from the Azure CLI session.
-        # Required permission: Microsoft.Web/sites/write (subset of Website Contributor).
+        #
+        # For FC1 the deployment package including all Python dependencies can exceed the
+        # ARM inline body size limit (~100 MB), causing HTTP 413. To avoid this, the zip
+        # is uploaded to Azure Blob Storage first and then deployed via URL (type=url).
+        # The storage account key is fetched via ARM (requires listkeys permission, which
+        # is included in the Contributor and Storage Account Contributor roles).
+        # A read-only SAS URL (2-hour validity) is generated for the ARM deployment call.
+        # If the blob upload fails the step falls back to the inline upload (type=zip).
         run: |
           TOKEN=$(az account get-access-token \
             --resource "https://management.azure.com/" \
             --query accessToken \
             --output tsv)
           echo "::add-mask::$TOKEN"
-          DEPLOY_URL="https://management.azure.com/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.FUNCTION_APP_NAME }}/extensions/onedeploy?api-version=2023-12-01&type=zip&remoteBuild=false"
-          HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
-            --max-time 600 \
-            -X PUT \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @func-package.zip \
-            "$DEPLOY_URL")
-          if [[ "$HTTP_STATUS" != "200" ]] && [[ "$HTTP_STATUS" != "202" ]]; then
-            echo "::error::Deployment failed with HTTP $HTTP_STATUS"
-            cat /tmp/deploy-response.txt || true
-            exit 1
+
+          DEPLOY_BASE="https://management.azure.com/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.FUNCTION_APP_NAME }}/extensions/onedeploy?api-version=2023-12-01&remoteBuild=false"
+
+          # Derive storage account name (prefer env var, fall back to name convention)
+          if [ -n "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
+            SA_NAME="${{ env.STORAGE_ACCOUNT_NAME }}"
+          else
+            FA="${{ env.FUNCTION_APP_NAME }}"
+            SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-20)st
+            echo "::warning::STORAGE_ACCOUNT_NAME not set – derived storage account name: $SA_NAME"
           fi
-          echo "✅ Deployment succeeded (HTTP $HTTP_STATUS)"
+
+          BLOB_NAME="func-package-${{ github.sha }}.zip"
+          DEPLOYED=false
+
+          # Upload package to blob storage and deploy via URL to avoid ARM body size limit (HTTP 413)
+          if az storage blob upload \
+            --account-name "$SA_NAME" \
+            --container-name "${{ env.DEPLOYMENT_CONTAINER }}" \
+            --name "$BLOB_NAME" \
+            --file func-package.zip \
+            --auth-mode key \
+            --overwrite \
+            --output none; then
+
+            EXPIRY=$(python3 -c "from datetime import datetime,timezone,timedelta; print((datetime.now(timezone.utc)+timedelta(hours=2)).strftime('%Y-%m-%dT%H:%MZ'))")
+            PACKAGE_URL=$(az storage blob generate-sas \
+              --account-name "$SA_NAME" \
+              --container-name "${{ env.DEPLOYMENT_CONTAINER }}" \
+              --name "$BLOB_NAME" \
+              --permissions r \
+              --expiry "$EXPIRY" \
+              --full-uri \
+              --auth-mode key \
+              --output tsv)
+            echo "::add-mask::$PACKAGE_URL"
+
+            PACKAGE_JSON=$(printf '{"packageUri":"%s"}' "$PACKAGE_URL")
+            HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
+              --max-time 600 \
+              -X PUT \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary "$PACKAGE_JSON" \
+              "${DEPLOY_BASE}&type=url")
+
+            if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
+              echo "✅ Deployment succeeded via URL (HTTP $HTTP_STATUS)"
+              DEPLOYED=true
+            else
+              echo "::warning::URL-based deployment failed (HTTP $HTTP_STATUS) – falling back to inline upload"
+              cat /tmp/deploy-response.txt || true
+            fi
+          else
+            echo "::warning::Blob upload failed – falling back to inline zip deployment"
+          fi
+
+          # Fall back to inline zip upload if URL-based deployment failed or was unavailable
+          if [[ "$DEPLOYED" != "true" ]]; then
+            HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
+              --max-time 600 \
+              -X PUT \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @func-package.zip \
+              "${DEPLOY_BASE}&type=zip")
+            if [[ "$HTTP_STATUS" != "200" ]] && [[ "$HTTP_STATUS" != "202" ]]; then
+              echo "::error::Deployment failed with HTTP $HTTP_STATUS"
+              cat /tmp/deploy-response.txt || true
+              exit 1
+            fi
+            echo "✅ Deployment succeeded via inline upload (HTTP $HTTP_STATUS)"
+          fi
 
       - name: Configure Function App CORS
         # Ensure CORS wildcard is set on the deployed Function App on every release.
