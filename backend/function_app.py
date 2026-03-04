@@ -301,6 +301,45 @@ async def agent_chat(req: func.HttpRequest) -> func.HttpResponse:
                     ),
                 },
             }, 500)
+
+        # Provide actionable guidance for common Azure OpenAI 401 errors
+        is_401 = False
+        try:
+            from openai import AuthenticationError
+            is_401 = isinstance(exc, AuthenticationError)
+        except ImportError:
+            pass
+        if not is_401:
+            err_lower = err_str.lower()
+            is_401 = "401" in err_str and any(
+                kw in err_lower
+                for kw in ("subscription key", "access denied", "unauthorized", "authentication")
+            )
+
+        if is_401:
+            endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT", "(not set)")
+            api_key_set = bool(os.environ.get("AZURE_OPENAI_API_KEY", "").strip())
+            logger.error(
+                "Azure OpenAI 401: endpoint=%s api_key_set=%s – "
+                "verify AZURE_OPENAI_API_KEY or managed identity permissions.",
+                endpoint, api_key_set,
+            )
+            return _json_response({
+                "error": f"Agent error: {exc}",
+                "diagnostics": {
+                    "endpoint": endpoint,
+                    "apiKeyConfigured": api_key_set,
+                    "hint": (
+                        "Azure OpenAI returned 401 (Unauthorized / missing subscription key). "
+                        "Please verify: (1) AZURE_OPENAI_API_KEY is set correctly in application settings, "
+                        "(2) if using managed identity, the identity has the 'Cognitive Services OpenAI User' role "
+                        "on the Azure OpenAI resource, "
+                        "(3) AZURE_OPENAI_ENDPOINT points directly to your Azure OpenAI resource "
+                        "(not an API Management proxy that requires a separate subscription key)."
+                    ),
+                },
+            }, 500)
+
         return _error(f"Agent error: {exc}", 500)
 
 
