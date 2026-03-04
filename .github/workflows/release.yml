@@ -402,21 +402,31 @@ jobs:
           fi
 
       - name: Deploy to Azure Functions
-        # Flex Consumption (FC1): use the authenticated service principal (azure/login above)
-        # via az functionapp deployment source config-zip. This avoids SCM Basic Auth
-        # (which may be disabled) and works with any plan type without extra credentials.
+        # Flex Consumption (FC1): deploy via Kudu Bearer-token auth, constructing the SCM
+        # URL directly from FUNCTION_APP_NAME to avoid GET /sites/{name} which requires
+        # Microsoft.Web/sites/read. Follows the same pattern as infra.yml: construct ARM
+        # identifiers directly to avoid chicken-and-egg permission issues.
+        # Required permission: Microsoft.Web/sites/write (subset of Website Contributor).
         run: |
-          SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          TOKEN=$(az account get-access-token \
+            --resource "https://management.azure.com/" \
+            --query accessToken \
+            --output tsv)
+          echo "::add-mask::$TOKEN"
+          KUDU_URL="https://${{ env.FUNCTION_APP_NAME }}.scm.azurewebsites.net/api/zipdeploy"
+          HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
+            --max-time 600 \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @func-package.zip \
+            "${KUDU_URL}?isAsync=false")
+          if [[ "$HTTP_STATUS" != "200" ]] && [[ "$HTTP_STATUS" != "202" ]]; then
+            echo "::error::Deployment failed with HTTP $HTTP_STATUS"
+            cat /tmp/deploy-response.txt || true
+            exit 1
           fi
-          az functionapp deployment source config-zip \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            --name "${{ env.FUNCTION_APP_NAME }}" \
-            "${SUBSCRIPTION_ARGS[@]}" \
-            --src func-package.zip \
-            --build-remote false
-          echo "✅ Deployment succeeded"
+          echo "✅ Deployment succeeded (HTTP $HTTP_STATUS)"
 
       - name: Configure Function App CORS
         # Ensure CORS wildcard is set on the deployed Function App on every release.
