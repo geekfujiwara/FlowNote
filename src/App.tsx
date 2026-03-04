@@ -15,14 +15,21 @@ function AppInner() {
   useSignalR()
 
   useEffect(() => {
-    listNotes().then(() => {
-      const loaded = useStore.getState().notes
-      if (loaded.length > 0) {
-        loadNote(loaded[0].id)
-      } else {
+    const init = async () => {
+      try {
+        await listNotes()
+        const loaded = useStore.getState().notes
+        if (loaded.length > 0) {
+          await loadNote(loaded[0].id)
+        } else {
+          newNote()
+        }
+      } catch (err) {
+        console.error('[AppInner] Failed to load notes:', err)
         newNote()
       }
-    })
+    }
+    init()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

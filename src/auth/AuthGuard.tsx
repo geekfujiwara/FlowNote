@@ -41,6 +41,7 @@ export function AuthGuard({ children }: Props) {
   const [loading, setLoading] = useState(true)
   const [pwAuthed, setPwAuthed] = useState(false)
 
+  // ページロード時: キャッシュ済みアカウントがあればサイレントでトークンを取得
   useEffect(() => {
     const init = async () => {
       try {
@@ -82,6 +83,29 @@ export function AuthGuard({ children }: Props) {
     init()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance])
+
+  // loginPopup 成功後: isAuthenticated が true になった時点でトークンを取得してセット
+  useEffect(() => {
+    if (!isAuthenticated || USE_PASSWORD_AUTH) return
+    const acquireToken = async () => {
+      try {
+        const allAccounts = instance.getAllAccounts()
+        if (allAccounts.length === 0) return
+        const silent = await instance.acquireTokenSilent({
+          ...loginRequest,
+          account: allAccounts[0],
+        })
+        sessionStorage.setItem(
+          'msal_token',
+          silent.idToken ?? silent.accessToken
+        )
+      } catch (err) {
+        console.warn('[AuthGuard] acquireTokenSilent after login failed:', err)
+      }
+    }
+    acquireToken()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated])
 
   const handlePasswordSuccess = () => {
     sessionStorage.setItem(PW_SESSION_KEY, 'true')
