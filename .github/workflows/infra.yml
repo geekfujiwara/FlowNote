@@ -12,6 +12,12 @@
 #   AZURE_FUNCTIONAPP_NAME     Function App name
 #   AZURE_STORAGE_ACCOUNT_NAME Storage account name
 #
+# Optional GitHub Secrets (override Bicep parameter defaults):
+#   AZURE_OPENAI_ENDPOINT          Azure OpenAI / APIM gateway endpoint URL
+#   AZURE_OPENAI_DEPLOYMENT_NAME   Model deployment name
+#   AZURE_OPENAI_MODEL_NAME        Model name
+#   AZURE_OPENAI_MODEL_VERSION     Model version
+#
 # Run manually from Actions → "Deploy Infrastructure" → Run workflow.
 # ============================================================
 
@@ -45,16 +51,30 @@ jobs:
 
       # ── 1. Deploy Bicep template ───────────────────────────
       - name: Deploy infra/main.bicep
+        env:
+          OAI_ENDPOINT:      ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          OAI_DEPLOYMENT:    ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
+          OAI_MODEL_NAME:    ${{ secrets.AZURE_OPENAI_MODEL_NAME }}
+          OAI_MODEL_VERSION: ${{ secrets.AZURE_OPENAI_MODEL_VERSION }}
         run: |
           SUBSCRIPTION_ARGS=()
           if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
             SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
           fi
+          # Build optional Bicep parameter overrides from secrets
+          PARAMS=()
+          [ -n "$OAI_ENDPOINT" ]      && PARAMS+=(azureOpenAiEndpointOverride="$OAI_ENDPOINT")
+          [ -n "$OAI_DEPLOYMENT" ]    && PARAMS+=(azureOpenAiDeploymentName="$OAI_DEPLOYMENT")
+          [ -n "$OAI_MODEL_NAME" ]    && PARAMS+=(azureOpenAiModelName="$OAI_MODEL_NAME")
+          [ -n "$OAI_MODEL_VERSION" ] && PARAMS+=(azureOpenAiModelVersion="$OAI_MODEL_VERSION")
+          PARAM_ARGS=()
+          for p in "${PARAMS[@]}"; do PARAM_ARGS+=(--parameters "$p"); done
           az deployment group create \
             "${SUBSCRIPTION_ARGS[@]}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
             --template-file infra/main.bicep \
             --mode Incremental \
+            "${PARAM_ARGS[@]}" \
             --output table
           echo "✅ Bicep deployment completed"
 
