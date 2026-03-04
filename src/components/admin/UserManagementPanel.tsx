@@ -18,7 +18,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useMsal } from '@azure/msal-react'
-import { hasMsalConfig, loginRequest } from '@/auth/msalConfig'
+import { hasMsalConfig, acquireIdToken } from '@/auth/msalConfig'
 
 // ─────────────────────────────────────────────────────────────
 // Types – mirroring the backend API response shape
@@ -304,13 +304,9 @@ export function UserManagementPanel({ onClose }: Props) {
       let token = sessionStorage.getItem('msal_token') ?? ''
       if (hasMsalConfig && accounts.length > 0) {
         try {
-          const silent = await instance.acquireTokenSilent({
-            ...loginRequest,
-            account: accounts[0],
-          })
-          token = silent.idToken || silent.accessToken
+          token = await acquireIdToken(instance, accounts[0])
         } catch (silentErr) {
-          console.warn('[UserMgmt] acquireTokenSilent failed:', silentErr)
+          console.warn('[UserMgmt] acquireIdToken failed:', silentErr)
         }
       }
 

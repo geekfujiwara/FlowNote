@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useMsal, useIsAuthenticated } from '@azure/msal-react'
-import { loginRequest, hasMsalConfig } from './msalConfig'
+import { loginRequest, hasMsalConfig, acquireIdToken } from './msalConfig'
 import { Eye, EyeOff, Github, Layers, Lock, LogIn, Loader2 } from 'lucide-react'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK_API !== 'false'
@@ -62,14 +62,8 @@ export function AuthGuard({ children }: Props) {
         const allAccounts = instance.getAllAccounts()
         if (allAccounts.length > 0) {
           try {
-            const silent = await instance.acquireTokenSilent({
-              ...loginRequest,
-              account: allAccounts[0],
-            })
-            sessionStorage.setItem(
-              'msal_token',
-              silent.idToken || silent.accessToken
-            )
+            const idToken = await acquireIdToken(instance, allAccounts[0])
+            sessionStorage.setItem('msal_token', idToken)
           } catch {
             // サイレント取得失敗 → ログイン画面を表示
           }
@@ -91,14 +85,8 @@ export function AuthGuard({ children }: Props) {
       try {
         const allAccounts = instance.getAllAccounts()
         if (allAccounts.length === 0) return
-        const silent = await instance.acquireTokenSilent({
-          ...loginRequest,
-          account: allAccounts[0],
-        })
-        sessionStorage.setItem(
-          'msal_token',
-          silent.idToken ?? silent.accessToken
-        )
+        const idToken = await acquireIdToken(instance, allAccounts[0])
+        sessionStorage.setItem('msal_token', idToken)
       } catch (err) {
         console.warn('[AuthGuard] acquireTokenSilent after login failed:', err)
       }
