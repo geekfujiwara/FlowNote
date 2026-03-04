@@ -23,6 +23,7 @@
 #   VITE_MSAL_CLIENT_ID                Legacy alias for VITE_ENTRA_CLIENT_ID (still supported)
 #   VITE_MSAL_TENANT_ID                Entra tenant ID (omit to allow any tenant / multi-tenant)
 #   VITE_MSAL_REDIRECT_URI             (deprecated) redirect URI override; defaults to window.location.origin
+#   VITE_ADMIN_EMAILS                  Comma-separated admin email addresses (shows user-management icon)
 #   AZURE_OPENAI_ENDPOINT              Endpoint URL of an existing Azure OpenAI resource
 #   AZURE_OPENAI_DEPLOYMENT_NAME       Model deployment name (e.g. gpt-4o-mini)
 #   AZURE_OPENAI_API_VERSION           API version (e.g. 2025-04-01-preview)
@@ -174,6 +175,7 @@ jobs:
           VITE_MSAL_CLIENT_ID:                ${{ secrets.VITE_MSAL_CLIENT_ID }}
           VITE_MSAL_TENANT_ID:                ${{ secrets.VITE_MSAL_TENANT_ID }}
           VITE_MSAL_REDIRECT_URI:             ${{ secrets.VITE_MSAL_REDIRECT_URI }}
+          VITE_ADMIN_EMAILS:                  ${{ secrets.VITE_ADMIN_EMAILS }}
         run: npm run build
 
       # Mock build (no Azure infra – artifact still stored for debugging)
