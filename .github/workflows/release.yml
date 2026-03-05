@@ -518,12 +518,42 @@ jobs:
           DEPLOY_URL="https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
           echo "Deploying to: https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
 
+          # DNS check
+          echo "Resolving ${SCM_HOST}..."
+          nslookup "${SCM_HOST}" 2>&1 | head -6 || echo "::warning::nslookup failed"
+
+          # Disable errexit for curl so we can capture failures
+          set +e
           HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" \
             -X POST "$DEPLOY_URL" \
             -u "${AUTH_USER}:${AUTH_PASS}" \
             -H "Content-Type: application/zip" \
             --max-time 600 \
             --data-binary @func-package.zip)
+          CURL_EXIT=$?
+          set -e
+
+          if [ $CURL_EXIT -ne 0 ]; then
+            echo "::warning::curl exited with code $CURL_EXIT"
+            # Try zipdeploy endpoint as fallback (different API path)
+            echo "Trying /api/zipdeploy endpoint as fallback..."
+            DEPLOY_URL2="https://${SCM_HOST}/api/zipdeploy?isAsync=false"
+            set +e
+            HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" \
+              -X POST "$DEPLOY_URL2" \
+              -u "${AUTH_USER}:${AUTH_PASS}" \
+              -H "Content-Type: application/octet-stream" \
+              --max-time 600 \
+              --data-binary @func-package.zip)
+            CURL_EXIT=$?
+            set -e
+            if [ $CURL_EXIT -ne 0 ]; then
+              echo "::error::curl failed with exit code $CURL_EXIT for both /api/publish and /api/zipdeploy"
+              echo "This usually means the SCM host could not be reached."
+              echo "Check if the Function App is running and the SCM endpoint is accessible."
+              exit 1
+            fi
+          fi
 
           echo "HTTP Response: $HTTP_STATUS"
           cat /tmp/deploy-response.json 2>/dev/null || true
