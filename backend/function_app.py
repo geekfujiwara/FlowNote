@@ -649,23 +649,36 @@ union isfuzzy=true customEvents, pageViews
 | order by user_AuthenticatedId, day
         """
 
-        users_resp = client.query_workspace(
-            workspace_id=workspace_id,
-            query=kql_users,
-            timespan=timedelta(days=90),
-        )
-        daily_resp = client.query_workspace(
-            workspace_id=workspace_id,
-            query=kql_daily,
-            timespan=timedelta(days=30),
-        )
+        from azure.core.exceptions import HttpResponseError
+
+        # クエリ実行 — テーブルが存在しない場合は空結果を返す
+        try:
+            users_resp = client.query_workspace(
+                workspace_id=workspace_id,
+                query=kql_users,
+                timespan=timedelta(days=90),
+            )
+        except HttpResponseError as qe:
+            if "SEM0529" in str(qe) or "SemanticError" in str(qe):
+                logger.warning("No telemetry tables exist yet — returning empty result")
+                return _json_response({"users": [], "source": "application_insights", "note": "No telemetry data collected yet"})
+            raise
+
+        try:
+            daily_resp = client.query_workspace(
+                workspace_id=workspace_id,
+                query=kql_daily,
+                timespan=timedelta(days=30),
+            )
+        except HttpResponseError:
+            daily_resp = None
 
         if users_resp.status != LogsQueryStatus.SUCCESS:
             return _error("Users log query failed", 500)
 
         # 日別データを email → [{day, count}] の辞書に変換
         daily_map: dict = {}
-        if daily_resp.status == LogsQueryStatus.SUCCESS and daily_resp.tables:
+        if daily_resp and daily_resp.status == LogsQueryStatus.SUCCESS and daily_resp.tables:
             daily_table = daily_resp.tables[0]
             daily_cols = [c.name for c in daily_table.columns]
             for row in daily_resp.tables[0].rows:
