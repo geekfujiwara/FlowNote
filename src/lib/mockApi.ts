@@ -48,6 +48,10 @@ export async function listNotes(): Promise<NoteItem[]> {
       .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1))
   }
   const res = await fetch(`${API_BASE}/api/list`, { headers: await authHeaders() })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error ?? `List API error ${res.status}`)
+  }
   return res.json()
 }
 
@@ -60,6 +64,10 @@ export async function loadNote(id: string): Promise<NoteDetail> {
     return note
   }
   const res = await fetch(`${API_BASE}/api/load/${id}`, { headers: await authHeaders() })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error ?? `Load API error ${res.status}`)
+  }
   return res.json()
 }
 
@@ -89,6 +97,10 @@ export async function saveNote(data: {
     headers: { ...await authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error ?? `Save API error ${res.status}`)
+  }
   return res.json()
 }
 
@@ -100,10 +112,14 @@ export async function deleteNote(id: string): Promise<void> {
     setAllNotes(all)
     return
   }
-  await fetch(`${API_BASE}/api/delete/${id}`, {
+  const res = await fetch(`${API_BASE}/api/delete/${id}`, {
     method: 'DELETE',
     headers: await authHeaders(),
   })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error ?? `Delete API error ${res.status}`)
+  }
 }
 
 export async function renameNote(id: string, title: string): Promise<void> {
@@ -212,6 +228,10 @@ export async function negotiate(): Promise<{ url: string; accessToken?: string }
     return { url: '' } // mock – no real SignalR
   }
   const res = await fetch(`${API_BASE}/api/negotiate`, { headers: await authHeaders() })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error ?? `Negotiate error ${res.status}`)
+  }
   return res.json()
 }
 
