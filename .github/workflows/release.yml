@@ -334,6 +334,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
       - name: Package backend (source only – remote build installs deps)
         run: |
           cd backend
@@ -450,44 +455,109 @@ jobs:
           fi
 
       - name: Deploy to Azure Functions
-        # Deploy source-only zip via ARM onedeploy with remoteBuild=true.
-        # Azure installs Python dependencies server-side from requirements.txt.
-        # Source zip is small (a few KB) so inline upload works – no blob storage
-        # access required, no HTTP 413.
+        # Three deployment methods tried in order:
+        #   1. az functionapp deploy --build-remote (CLI native, may use SCM internally)
+        #   2. SCM /api/zipdeploy with publishing credentials (source zip + remote build)
+        #   3. Full package (pip install locally) + SCM zipdeploy (no remote build)
+        # Methods 2 & 3 use publishing credentials — the Kudu/SCM service accesses
+        # blob storage via the Function App's own identity, NOT the SP.
         run: |
+          set -uo pipefail
           SUB="${{ env.SUBSCRIPTION_ID }}"
           RG="${{ env.RESOURCE_GROUP }}"
           FA="${{ env.FUNCTION_APP_NAME }}"
+          echo "Source package size: $(du -h func-package.zip | cut -f1)"
 
-          TOKEN=$(az account get-access-token \
-            --resource "https://management.azure.com/" \
-            --query accessToken \
-            --output tsv)
-          echo "::add-mask::$TOKEN"
-
-          DEPLOY_URL="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/extensions/onedeploy?api-version=2023-12-01&remoteBuild=true&type=zip"
-
-          echo "Package size: $(du -h func-package.zip | cut -f1)"
-
-          HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
-            --max-time 600 \
-            -X PUT \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @func-package.zip \
-            "$DEPLOY_URL")
-
-          if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
-            echo "✅ Deployment succeeded (HTTP $HTTP_STATUS)"
+          # Pre-fetch publishing credentials for methods 2 & 3
+          echo "Fetching publishing credentials..."
+          CREDS_JSON=$(az functionapp deployment list-publishing-credentials \
+            --resource-group "$RG" --name "$FA" --subscription "$SUB" \
+            --output json 2>&1) || CREDS_JSON="{}"
+          SCM_URI=$(echo "$CREDS_JSON" | python3 -c "
+          import sys, json
+          try:
+              d = json.load(sys.stdin)
+              print(d.get('scmUri', ''))
+          except: print('')" 2>/dev/null || echo "")
+          if [ -n "$SCM_URI" ]; then
+            echo "::add-mask::$SCM_URI"
+            echo "SCM endpoint: found"
           else
-            echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
-            cat /tmp/deploy-response.txt 2>/dev/null || true
-            echo "Troubleshooting:"
-            echo "  1. Ensure Function App '$FA' exists and is running"
-            echo "  2. Ensure SP has Web Contributor on the Function App"
-            echo "  3. Run 'Deploy Infrastructure' workflow if resources are not provisioned"
-            exit 1
+            echo "SCM endpoint: not found"
           fi
+
+          # ── Method 1: az functionapp deploy ──
+          echo ""
+          echo "═══ Method 1: az functionapp deploy --build-remote true ═══"
+          if az functionapp deploy \
+               --resource-group "$RG" --name "$FA" --subscription "$SUB" \
+               --src-path func-package.zip --type zip \
+               --build-remote true 2>&1; then
+            echo "✅ Deployment succeeded (Method 1: az functionapp deploy)"
+            exit 0
+          fi
+          echo "::warning::Method 1 (az functionapp deploy) failed – trying SCM deploy"
+
+          # ── Method 2: SCM zipdeploy (source only + remote build) ──
+          if [ -n "$SCM_URI" ]; then
+            echo ""
+            echo "═══ Method 2: SCM zipdeploy (source + remote build) ═══"
+            # Enable remote build via app settings (best-effort)
+            az functionapp config appsettings set \
+              --name "$FA" --resource-group "$RG" --subscription "$SUB" \
+              --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true ENABLE_ORYX_BUILD=true \
+              --output none 2>/dev/null || true
+
+            HTTP_STATUS=$(curl -s -o /tmp/scm-response.txt -w "%{http_code}" \
+              --max-time 600 -X POST \
+              "${SCM_URI}/api/zipdeploy?isAsync=false" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @func-package.zip)
+            echo "SCM zipdeploy returned HTTP $HTTP_STATUS"
+            if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
+              echo "✅ Deployment succeeded (Method 2: SCM zipdeploy, HTTP $HTTP_STATUS)"
+              exit 0
+            fi
+            echo "::warning::Method 2 failed (HTTP $HTTP_STATUS)"
+            cat /tmp/scm-response.txt 2>/dev/null | head -20 || true
+
+            # ── Method 3: Full package (with deps) + SCM deploy ──
+            echo ""
+            echo "═══ Method 3: full package + SCM zipdeploy ═══"
+            echo "Installing Python dependencies locally..."
+            python3 -m pip install --no-cache-dir --quiet \
+              -r backend/requirements.txt \
+              -t backend/.python_packages/lib/site-packages 2>&1 | tail -5
+            echo "Creating full deployment package..."
+            (cd backend && zip -qr ../func-pkg-full.zip . \
+              -x "local.settings.json" \
+              -x ".venv/*" -x "venv/*" \
+              -x "*/__pycache__/*" -x "__pycache__/*" -x "*.pyc" \
+              -x ".env" -x ".env.*" \
+              -x "tests/*" -x "*.test.py" -x "e2e-results/*")
+            echo "Full package size: $(du -h func-pkg-full.zip | cut -f1)"
+
+            HTTP_STATUS=$(curl -s -o /tmp/scm-full-response.txt -w "%{http_code}" \
+              --max-time 900 -X POST \
+              "${SCM_URI}/api/zipdeploy?isAsync=false" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary @func-pkg-full.zip)
+            echo "SCM full deploy returned HTTP $HTTP_STATUS"
+            if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
+              echo "✅ Deployment succeeded (Method 3: SCM full package, HTTP $HTTP_STATUS)"
+              exit 0
+            fi
+            echo "::warning::Method 3 failed (HTTP $HTTP_STATUS)"
+            cat /tmp/scm-full-response.txt 2>/dev/null | head -20 || true
+          fi
+
+          echo "::error::All deployment methods failed."
+          echo "Troubleshooting:"
+          echo "  1. Ensure Function App '$FA' exists and is running"
+          echo "  2. Ensure SP has Web Contributor on the Function App"
+          echo "  3. Check if storage public network access is disabled"
+          echo "  4. Run 'Deploy Infrastructure' workflow if resources are not provisioned"
+          exit 1
 
       - name: Configure Function App CORS
         # Ensure CORS wildcard is set on the deployed Function App on every release.
