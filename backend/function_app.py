@@ -597,8 +597,14 @@ async def admin_analytics_users(req: func.HttpRequest) -> func.HttpResponse:
             user = _user_from_payload(payload)
             admin_emails_raw = os.environ.get("ADMIN_EMAILS", "").strip()
             admin_emails = {e.strip().lower() for e in admin_emails_raw.split(",") if e.strip()}
-            if admin_emails and user.get("email", "") not in admin_emails:
-                return _error("Admin access required", 403)
+            admin_domain = os.environ.get("ADMIN_DOMAIN", "").strip().lower()
+            caller_email = user.get("email", "")
+            email_match = admin_emails and caller_email in admin_emails
+            domain_match = admin_domain and caller_email.endswith(f"@{admin_domain}")
+            if not email_match and not domain_match:
+                # If neither list nor domain is configured, allow all authenticated users
+                if admin_emails or admin_domain:
+                    return _error("Admin access required", 403)
         except Exception as e:
             logger.exception("admin_analytics_users auth error")
             return _error(f"Token verification failed: {e}", 401)

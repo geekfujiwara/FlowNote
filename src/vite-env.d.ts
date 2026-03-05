@@ -13,6 +13,7 @@ interface ImportMetaEnv {
   readonly VITE_APPINSIGHTS_CONNECTION_STRING: string
   readonly VITE_SIGNALR_ENABLED: string
   readonly VITE_ADMIN_EMAILS: string
+  readonly VITE_ADMIN_DOMAIN: string
 }
 
 interface ImportMeta {

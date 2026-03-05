@@ -42,7 +42,7 @@ export function AppLayout() {
 
   const userName = USE_MOCK ? 'Demo User' : (accounts[0]?.name ?? accounts[0]?.username ?? 'User')
 
-  // システム管理者チェック (VITE_ADMIN_EMAILS 環境変数で設定)
+  // システム管理者チェック (VITE_ADMIN_EMAILS または VITE_ADMIN_DOMAIN 環境変数で設定)
   const userEmail = USE_MOCK
     ? ''
     : (
@@ -54,8 +54,14 @@ export function AppLayout() {
     .split(',')
     .map((e: string) => e.trim().toLowerCase())
     .filter(Boolean)
+  // ドメインベースの管理者チェック (例: microsoft.com)
+  const adminDomain = (import.meta.env.VITE_ADMIN_DOMAIN ?? '').trim().toLowerCase()
+  const emailMatchesAdminDomain = adminDomain && userEmail.endsWith(`@${adminDomain}`)
   // モック時は管理者ボタンを常に表示（開発・デモ用）
-  const isAdmin = USE_MOCK ? adminEmails.length > 0 : adminEmails.length > 0 && adminEmails.includes(userEmail)
+  // メールアドレスリストまたはドメインのいずれかに一致すれば管理者
+  const isAdmin = USE_MOCK
+    ? (adminEmails.length > 0 || !!adminDomain)
+    : (adminEmails.length > 0 && adminEmails.includes(userEmail)) || !!emailMatchesAdminDomain
 
   // App Insights に認証済みユーザーを登録
   useEffect(() => {
