@@ -682,7 +682,7 @@ AppEvents
         daily_map: dict = {}
         if daily_resp and daily_resp.status == LogsQueryStatus.SUCCESS and daily_resp.tables:
             daily_table = daily_resp.tables[0]
-            daily_cols = [c.name for c in daily_table.columns]
+            daily_cols = [c.name if hasattr(c, 'name') else str(c) for c in daily_table.columns]
             for row in daily_resp.tables[0].rows:
                 rd = dict(zip(daily_cols, row))
                 email = rd.get("UserAuthenticatedId", "")
@@ -691,7 +691,7 @@ AppEvents
                 )
 
         users_table = users_resp.tables[0]
-        cols = [c.name for c in users_table.columns]
+        cols = [c.name if hasattr(c, 'name') else str(c) for c in users_table.columns]
         users: list = []
         for row in users_resp.tables[0].rows:
             rd = dict(zip(cols, row))
