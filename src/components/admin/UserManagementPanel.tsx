@@ -300,14 +300,14 @@ export function UserManagementPanel({ onClose }: Props) {
     setLoading(true)
     setError(null)
     try {
-      // MSALが有効な場合はサイレントでIDトークンを取得（ポップアップ不要）
-      let token = sessionStorage.getItem('msal_token') ?? ''
+      // MSALが有効な場合は常にフレッシュなIDトークンを取得（期限切れ防止）
+      let token = ''
       if (hasMsalConfig && accounts.length > 0) {
-        try {
-          token = await acquireIdToken(instance, accounts[0])
-        } catch (silentErr) {
-          console.warn('[UserMgmt] acquireIdToken failed:', silentErr)
-        }
+        token = await acquireIdToken(instance, accounts[0])
+        sessionStorage.setItem('msal_token', token)
+      } else {
+        // パスワード認証モード
+        token = sessionStorage.getItem('msal_token') ?? ''
       }
 
       const headers: Record<string, string> = {}

@@ -47,7 +47,7 @@ export async function listNotes(): Promise<NoteItem[]> {
       .map(({ id, title, updatedAt, tags }) => ({ id, title, updatedAt, tags }))
       .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1))
   }
-  const res = await fetch(`${API_BASE}/api/list`, { headers: authHeaders() })
+  const res = await fetch(`${API_BASE}/api/list`, { headers: await authHeaders() })
   return res.json()
 }
 
@@ -59,7 +59,7 @@ export async function loadNote(id: string): Promise<NoteDetail> {
     if (!note) throw new Error(`Note not found: ${id}`)
     return note
   }
-  const res = await fetch(`${API_BASE}/api/load/${id}`, { headers: authHeaders() })
+  const res = await fetch(`${API_BASE}/api/load/${id}`, { headers: await authHeaders() })
   return res.json()
 }
 
@@ -86,7 +86,7 @@ export async function saveNote(data: {
   }
   const res = await fetch(`${API_BASE}/api/save`, {
     method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...await authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
   return res.json()
@@ -102,7 +102,7 @@ export async function deleteNote(id: string): Promise<void> {
   }
   await fetch(`${API_BASE}/api/delete/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
+    headers: await authHeaders(),
   })
 }
 
@@ -143,7 +143,7 @@ export async function agentChat(payload: {
 
   const res = await fetch(`${AGENT_API_BASE}/api/agent/chat`, {
     method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...await authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
   if (!res.ok) {
@@ -166,7 +166,7 @@ export async function runOcr(imageDataUrl: string, mimeType: string): Promise<st
   }
   const res = await fetch(`${AGENT_API_BASE}/api/ocr`, {
     method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...await authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ image: imageDataUrl, mimeType }),
   })
   if (!res.ok) {
@@ -192,7 +192,7 @@ export async function parseDocument(
   }
   const res = await fetch(`${AGENT_API_BASE}/api/parse-document`, {
     method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...await authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: contentBase64, fileName, mimeType }),
   })
   if (!res.ok) {
@@ -211,7 +211,7 @@ export async function negotiate(): Promise<{ url: string; accessToken?: string }
   if (USE_MOCK) {
     return { url: '' } // mock – no real SignalR
   }
-  const res = await fetch(`${API_BASE}/api/negotiate`, { headers: authHeaders() })
+  const res = await fetch(`${API_BASE}/api/negotiate`, { headers: await authHeaders() })
   return res.json()
 }
 
@@ -219,7 +219,27 @@ export async function negotiate(): Promise<{ url: string; accessToken?: string }
 // Auth header helper
 // ─────────────────────────────────────────────
 
-function authHeaders(): Record<string, string> {
+import { msalInstance, hasMsalConfig, acquireIdToken } from '@/auth/msalConfig'
+
+/**
+ * API 呼び出し時に Authorization ヘッダーを生成する。
+ * MSAL が有効な場合は acquireTokenSilent で常にフレッシュな ID トークンを取得し、
+ * sessionStorage も更新する。パスワード認証モードではキャッシュを使う。
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  if (hasMsalConfig) {
+    const accounts = msalInstance.getAllAccounts()
+    if (accounts.length > 0) {
+      try {
+        const token = await acquireIdToken(msalInstance, accounts[0])
+        sessionStorage.setItem('msal_token', token)
+        return { Authorization: `Bearer ${token}` }
+      } catch (e) {
+        console.warn('[authHeaders] acquireIdToken failed, falling back to cache:', e)
+      }
+    }
+  }
+  // パスワード認証モード or MSAL フォールバック
   const token = sessionStorage.getItem('msal_token')
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
