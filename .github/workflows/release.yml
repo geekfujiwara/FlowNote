@@ -461,17 +461,13 @@ jobs:
           fi
 
       - name: Deploy to Azure Functions
-        # Deploy via ARM management API (PUT extensions/onedeploy) to avoid DNS issues
-        # with the SCM endpoint. The ARM URL is constructed directly from known parameters
-        # without requiring Microsoft.Web/sites/read. Works for all plan types including
-        # Flex Consumption (FC1). The ARM endpoint is always DNS-resolvable at
-        # management.azure.com and uses the Bearer token from the Azure CLI session.
-        #
-        # For FC1 the deployment package including all Python dependencies can exceed the
-        # ARM inline body size limit (~100 MB), causing HTTP 413. To avoid this, the zip
-        # is uploaded to Azure Blob Storage first and then deployed via URL (type=url).
-        # Storage account key is fetched via ARM REST API (curl + Bearer token) to avoid
-        # az CLI data-plane issues when storage network access is restricted.
+        # Deploy via ARM management API (PUT extensions/onedeploy).
+        # For FC1 the package with Python deps exceeds the ARM inline body limit (~100 MB).
+        # Strategy:
+        #   1. Extract storage key from Function App's AzureWebJobsStorage config
+        #      (SP has Web Contributor but may lack Storage Account permissions)
+        #   2. Upload zip to blob, deploy via type=url
+        #   3. Fallback: inline zip (type=zip) – will 413 for large packages
         run: |
           SUB="${{ env.SUBSCRIPTION_ID }}"
           RG="${{ env.RESOURCE_GROUP }}"
@@ -485,76 +481,98 @@ jobs:
 
           DEPLOY_BASE="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/extensions/onedeploy?api-version=2023-12-01&remoteBuild=false"
 
-          # Derive storage account name (prefer env var, fall back to name convention)
-          if [ -n "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
-            SA_NAME="${{ env.STORAGE_ACCOUNT_NAME }}"
-          else
-            SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-22)st
-            echo "::warning::STORAGE_ACCOUNT_NAME not set – derived storage account name: $SA_NAME"
-          fi
-
           BLOB_NAME="func-package-${{ github.sha }}.zip"
-          DEPLOYED=false
           CONTAINER="${{ env.DEPLOYMENT_CONTAINER }}"
+          DEPLOYED=false
           echo "Package size: $(du -h func-package.zip | cut -f1)"
 
-          # ── 1. Enable storage public network access via ARM REST API ──
-          echo "Enabling storage public network access via ARM..."
-          STORAGE_UPDATE_BODY='{"properties":{"publicNetworkAccess":"Enabled","networkAcls":{"bypass":"AzureServices,Logging,Metrics","defaultAction":"Allow"}}}'
-          STORAGE_UPDATE_URL="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}?api-version=2023-01-01"
-          STORAGE_UPDATE_RESULT=$(curl -s -o /tmp/storage-update.txt -w "%{http_code}" \
-            -X PATCH "$STORAGE_UPDATE_URL" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$STORAGE_UPDATE_BODY")
-          if [[ "$STORAGE_UPDATE_RESULT" == "200" ]] || [[ "$STORAGE_UPDATE_RESULT" == "202" ]]; then
-            echo "✅ Storage public network access enabled (HTTP $STORAGE_UPDATE_RESULT)"
-            echo "Waiting 15s for network change propagation..."
-            sleep 15
-          else
-            echo "::warning::Storage update returned HTTP $STORAGE_UPDATE_RESULT (may already be fine)"
-            cat /tmp/storage-update.txt 2>/dev/null || true
+          # ── 1. Extract storage key from Function App's AzureWebJobsStorage setting ──
+          # The SP can read Function App config even without direct storage account
+          # permissions. The connection string contains AccountKey.
+          echo "Reading AzureWebJobsStorage from Function App config..."
+          CONN_STRING=""
+          CONN_STRING=$(az functionapp config appsettings list \
+            --name "$FA" --resource-group "$RG" \
+            ${{ env.SUBSCRIPTION_ID && format('--subscription {0}', env.SUBSCRIPTION_ID) || '' }} \
+            --query "[?name=='AzureWebJobsStorage'].value" --output tsv 2>/dev/null) || true
+
+          STORAGE_KEY=""
+          SA_NAME="${{ env.STORAGE_ACCOUNT_NAME }}"
+
+          if [ -n "$CONN_STRING" ]; then
+            # Extract AccountKey from connection string
+            STORAGE_KEY=$(echo "$CONN_STRING" | python3 -c "
+          import sys
+          cs = sys.stdin.read().strip()
+          for part in cs.split(';'):
+              if part.startswith('AccountKey='):
+                  print(part[len('AccountKey='):])
+                  break
+          " 2>/dev/null) || true
+
+            # Extract AccountName from connection string (use actual name from config)
+            CS_ACCOUNT=$(echo "$CONN_STRING" | python3 -c "
+          import sys
+          cs = sys.stdin.read().strip()
+          for part in cs.split(';'):
+              if part.startswith('AccountName='):
+                  print(part[len('AccountName='):])
+                  break
+          " 2>/dev/null) || true
+
+            if [ -n "$CS_ACCOUNT" ]; then
+              if [ -n "$SA_NAME" ] && [ "$CS_ACCOUNT" != "$SA_NAME" ]; then
+                echo "::warning::Storage account in config ($CS_ACCOUNT) differs from secret ($SA_NAME). Using config value."
+              fi
+              SA_NAME="$CS_ACCOUNT"
+            fi
           fi
 
-          # ── 2. Fetch storage account key via ARM REST API ──
-          # Uses management.azure.com (always accessible), not the storage data plane.
-          echo "Fetching storage account key via ARM REST API..."
-          KEYS_URL="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}/listKeys?api-version=2023-01-01"
-          KEYS_RESPONSE=$(curl -s "$KEYS_URL" \
-            -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Length: 0")
+          if [ -n "$STORAGE_KEY" ]; then
+            echo "::add-mask::$STORAGE_KEY"
+            echo "✅ Storage key extracted from AzureWebJobsStorage config"
+          else
+            echo "::warning::Could not extract key from AzureWebJobsStorage."
 
-          STORAGE_KEY=$(echo "$KEYS_RESPONSE" | python3 -c "
+            # Fallback: derive storage account name if not set
+            if [ -z "$SA_NAME" ]; then
+              SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-22)st
+              echo "::warning::Derived storage account name: $SA_NAME"
+            fi
+
+            # Try ARM REST API for listKeys (may fail with 403 if SP lacks storage permissions)
+            echo "Trying ARM REST API to list storage account keys..."
+            KEYS_URL="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}/listKeys?api-version=2023-01-01"
+            KEYS_RESPONSE=$(curl -s "$KEYS_URL" -X POST \
+              -H "Authorization: Bearer $TOKEN" -H "Content-Length: 0")
+            STORAGE_KEY=$(echo "$KEYS_RESPONSE" | python3 -c "
           import sys, json
           try:
               d = json.load(sys.stdin)
               print(d['keys'][0]['value'])
-          except Exception as e:
-              print('', end='')
-              print(f'Key parse error: {e}', file=sys.stderr)
-          " 2>&1 | head -1)
+          except:
+              pass
+          " 2>/dev/null) || true
 
-          if [ -z "$STORAGE_KEY" ] || [[ "$STORAGE_KEY" == *"error"* ]] || [[ "$STORAGE_KEY" == *"Error"* ]]; then
-            echo "::error::Could not fetch storage account key via ARM REST API."
-            echo "ARM response: $(echo "$KEYS_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error',{}).get('message','unknown'))" 2>/dev/null || echo "$KEYS_RESPONSE" | head -3)"
-            echo "Verify: storage account '$SA_NAME' exists in resource group '$RG' (subscription: $SUB)"
-            echo "Attempting inline deployment (may fail with HTTP 413 for large packages)..."
-          else
-            echo "::add-mask::$STORAGE_KEY"
-            echo "✅ Storage account key obtained via ARM"
+            if [ -n "$STORAGE_KEY" ]; then
+              echo "::add-mask::$STORAGE_KEY"
+              echo "✅ Storage key from ARM API"
+            else
+              echo "::warning::Cannot obtain storage key from ARM (SP may lack storage permissions)."
+            fi
           fi
 
-          # ── 3. Create deployment container & upload blob ──
-          if [ -n "$STORAGE_KEY" ] && [[ "$STORAGE_KEY" != *"error"* ]]; then
-            echo "Ensuring container '${CONTAINER}' exists..."
+          # ── 2. Upload blob & deploy via URL ──
+          if [ -n "$STORAGE_KEY" ]; then
+            echo "Using storage account: $SA_NAME"
+            echo "Creating container '${CONTAINER}'..."
             az storage container create \
               --account-name "$SA_NAME" \
               --account-key "$STORAGE_KEY" \
               --name "$CONTAINER" \
               --output none 2>&1 || echo "::warning::Container create returned error (may already exist)"
 
-            echo "Uploading func-package.zip to blob ${SA_NAME}/${CONTAINER}/${BLOB_NAME}..."
+            echo "Uploading func-package.zip to blob..."
             if az storage blob upload \
               --account-name "$SA_NAME" \
               --account-key "$STORAGE_KEY" \
@@ -591,17 +609,17 @@ jobs:
                 echo "✅ Deployment succeeded via URL (HTTP $HTTP_STATUS)"
                 DEPLOYED=true
               else
-                echo "::warning::URL-based deployment failed (HTTP $HTTP_STATUS) – falling back to inline upload"
-                cat /tmp/deploy-response.txt || true
+                echo "::warning::URL-based deploy failed (HTTP $HTTP_STATUS)"
+                cat /tmp/deploy-response.txt 2>/dev/null || true
               fi
             else
-              echo "::warning::Blob upload failed – falling back to inline zip deployment"
+              echo "::warning::Blob upload failed"
             fi
           fi
 
-          # ── 4. Fallback: inline zip upload ──
+          # ── 3. Fallback: inline zip ──
           if [[ "$DEPLOYED" != "true" ]]; then
-            echo "Attempting inline zip deployment..."
+            echo "::warning::Falling back to inline zip deployment..."
             HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
               --max-time 600 \
               -X PUT \
@@ -610,13 +628,13 @@ jobs:
               --data-binary @func-package.zip \
               "${DEPLOY_BASE}&type=zip")
             if [[ "$HTTP_STATUS" != "200" ]] && [[ "$HTTP_STATUS" != "202" ]]; then
-              echo "::error::Deployment failed with HTTP $HTTP_STATUS"
-              cat /tmp/deploy-response.txt || true
-              echo "::error::Both blob-based and inline deployments failed."
+              echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
+              cat /tmp/deploy-response.txt 2>/dev/null || true
+              echo "::error::All deployment methods failed."
               echo "Troubleshooting:"
-              echo "  1. Verify storage account '$SA_NAME' exists: az storage account show --name $SA_NAME --resource-group $RG"
-              echo "  2. Ensure SP has Contributor role on RG '$RG'"
-              echo "  3. Run 'Deploy Infrastructure' workflow if resources are not yet provisioned"
+              echo "  1. Ensure Function App '$FA' has AzureWebJobsStorage set correctly"
+              echo "  2. Grant SP 'Storage Account Key Operator Service Role' on storage account"
+              echo "  3. Or run 'Deploy Infrastructure' workflow to provision resources"
               exit 1
             fi
             echo "✅ Deployment succeeded via inline upload (HTTP $HTTP_STATUS)"
