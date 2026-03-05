@@ -377,8 +377,19 @@ jobs:
             "${SUBSCRIPTION_ARGS[@]}" \
             --query principalId --output tsv 2>/dev/null || echo "")
           if [ -z "$PRINCIPAL_ID" ]; then
-            echo "::error::Function App has no system-assigned managed identity."
-            exit 1
+            echo "::warning::Function App has no system-assigned managed identity. Assigning now..."
+            PRINCIPAL_ID=$(az functionapp identity assign \
+              --name "${{ env.FUNCTION_APP_NAME }}" \
+              --resource-group "${{ env.RESOURCE_GROUP }}" \
+              "${SUBSCRIPTION_ARGS[@]}" \
+              --query principalId --output tsv)
+            if [ -z "$PRINCIPAL_ID" ]; then
+              echo "::error::Failed to assign system-assigned managed identity."
+              exit 1
+            fi
+            echo "✅ Managed identity assigned: $PRINCIPAL_ID"
+            echo "Waiting 60s for identity propagation..."
+            sleep 60
           fi
           echo "Function App principal ID: $PRINCIPAL_ID"
 
@@ -444,6 +455,13 @@ jobs:
 
           BLOB_NAME="func-package-${{ github.sha }}.zip"
           DEPLOYED=false
+
+          # Ensure deployment blob container exists
+          az storage container create \
+            --account-name "$SA_NAME" \
+            --name "${{ env.DEPLOYMENT_CONTAINER }}" \
+            --auth-mode key \
+            --output none 2>/dev/null || true
 
           # Upload package to blob storage and deploy via URL to avoid ARM body size limit (HTTP 413)
           if az storage blob upload \
