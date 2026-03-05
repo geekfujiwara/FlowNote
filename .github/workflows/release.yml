@@ -94,20 +94,27 @@ jobs:
     runs-on: ubuntu-latest
     needs: ci
     outputs:
-      has_swa_token:    ${{ steps.chk.outputs.has_swa_token }}
-      has_azure_creds:  ${{ steps.chk.outputs.has_azure_creds }}
-      can_deploy:       ${{ steps.chk.outputs.can_deploy }}
+      has_swa_token:      ${{ steps.chk.outputs.has_swa_token }}
+      has_azure_creds:    ${{ steps.chk.outputs.has_azure_creds }}
+      has_backend_secrets: ${{ steps.chk.outputs.has_backend_secrets }}
+      can_deploy:         ${{ steps.chk.outputs.can_deploy }}
     steps:
       - name: Evaluate secrets
         id: chk
         env:
-          SWA_TOKEN:    ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          AZURE_CREDS:  ${{ secrets.AZURE_CREDENTIALS }}
+          SWA_TOKEN:          ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          AZURE_CREDS:        ${{ secrets.AZURE_CREDENTIALS }}
+          FUNC_APP_NAME:      ${{ secrets.AZURE_FUNCTIONAPP_NAME }}
+          RESOURCE_GROUP:     ${{ secrets.AZURE_RESOURCE_GROUP }}
+          SUBSCRIPTION_ID:    ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          STORAGE_ACCT_NAME:  ${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }}
         run: |
           HAS_SWA="false"
           HAS_CREDS="false"
+          HAS_BACKEND="false"
           CAN_DEPLOY="false"
 
+          # ── Frontend secrets ──
           if [ -n "$SWA_TOKEN" ]; then
             HAS_SWA="true"
             CAN_DEPLOY="true"
@@ -124,9 +131,42 @@ jobs:
             echo "::warning::AZURE_CREDENTIALS is not set – Functions deploy will be skipped"
           fi
 
-          echo "has_swa_token=$HAS_SWA"     >> "$GITHUB_OUTPUT"
-          echo "has_azure_creds=$HAS_CREDS" >> "$GITHUB_OUTPUT"
-          echo "can_deploy=$CAN_DEPLOY"     >> "$GITHUB_OUTPUT"
+          # ── Backend-required secrets ──
+          BACKEND_MISSING=()
+          if [ -z "$FUNC_APP_NAME" ]; then
+            BACKEND_MISSING+=("AZURE_FUNCTIONAPP_NAME")
+          else
+            echo "✅  AZURE_FUNCTIONAPP_NAME is set ($FUNC_APP_NAME)"
+          fi
+          if [ -z "$RESOURCE_GROUP" ]; then
+            BACKEND_MISSING+=("AZURE_RESOURCE_GROUP")
+          else
+            echo "✅  AZURE_RESOURCE_GROUP is set ($RESOURCE_GROUP)"
+          fi
+          if [ -z "$SUBSCRIPTION_ID" ]; then
+            BACKEND_MISSING+=("AZURE_SUBSCRIPTION_ID")
+          else
+            echo "✅  AZURE_SUBSCRIPTION_ID is set"
+          fi
+          if [ -z "$STORAGE_ACCT_NAME" ]; then
+            BACKEND_MISSING+=("AZURE_STORAGE_ACCOUNT_NAME")
+          else
+            echo "✅  AZURE_STORAGE_ACCOUNT_NAME is set ($STORAGE_ACCT_NAME)"
+          fi
+
+          if [ ${#BACKEND_MISSING[@]} -eq 0 ] && [ "$HAS_CREDS" = "true" ]; then
+            HAS_BACKEND="true"
+            echo "✅  All backend deploy secrets present"
+          else
+            if [ ${#BACKEND_MISSING[@]} -gt 0 ]; then
+              echo "::warning::Missing backend secrets: ${BACKEND_MISSING[*]} – backend deploy will be skipped"
+            fi
+          fi
+
+          echo "has_swa_token=$HAS_SWA"           >> "$GITHUB_OUTPUT"
+          echo "has_azure_creds=$HAS_CREDS"       >> "$GITHUB_OUTPUT"
+          echo "has_backend_secrets=$HAS_BACKEND" >> "$GITHUB_OUTPUT"
+          echo "can_deploy=$CAN_DEPLOY"           >> "$GITHUB_OUTPUT"
 
   # ─────────────────────────────────────────────────────────
   # 3. Build frontend
@@ -289,7 +329,7 @@ jobs:
     name: Backend → Azure Functions
     runs-on: ubuntu-latest
     needs: [check-secrets, ci]
-    if: ${{ needs.check-secrets.outputs.has_azure_creds == 'true' }}
+    if: ${{ needs.check-secrets.outputs.has_backend_secrets == 'true' }}
 
     steps:
       - uses: actions/checkout@v4
