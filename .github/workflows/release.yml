@@ -334,33 +334,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install backend dependencies
-        working-directory: backend
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt \
-            --target=".python_packages/lib/site-packages"
-
-      - name: Package backend
+      - name: Package backend (source only – remote build installs deps)
         run: |
           cd backend
           zip -r ../func-package.zip . \
-            --exclude "local.settings.json" \
-            --exclude ".venv/*" \
-            --exclude "venv/*" \
-            --exclude "*/__pycache__/*" \
-            --exclude "__pycache__/*" \
-            --exclude "*.pyc" \
-            --exclude ".env" \
-            --exclude ".env.*" \
-            --exclude "tests/*" \
-            --exclude "*.test.py" \
-            --exclude "e2e-results/*"
+            -x "local.settings.json" \
+            -x ".venv/*" \
+            -x "venv/*" \
+            -x "*/__pycache__/*" \
+            -x "__pycache__/*" \
+            -x "*.pyc" \
+            -x ".env" \
+            -x ".env.*" \
+            -x "tests/*" \
+            -x "*.test.py" \
+            -x "e2e-results/*" \
+            -x ".python_packages/*"
 
       - name: Azure Login
         uses: azure/login@v2
@@ -461,13 +450,10 @@ jobs:
           fi
 
       - name: Deploy to Azure Functions
-        # Deploy via ARM management API (PUT extensions/onedeploy).
-        # For FC1 the package with Python deps exceeds the ARM inline body limit (~100 MB).
-        # Strategy:
-        #   1. Extract storage key from Function App's AzureWebJobsStorage config
-        #      (SP has Web Contributor but may lack Storage Account permissions)
-        #   2. Upload zip to blob, deploy via type=url
-        #   3. Fallback: inline zip (type=zip) – will 413 for large packages
+        # Deploy source-only zip via ARM onedeploy with remoteBuild=true.
+        # Azure installs Python dependencies server-side from requirements.txt.
+        # Source zip is small (a few KB) so inline upload works – no blob storage
+        # access required, no HTTP 413.
         run: |
           SUB="${{ env.SUBSCRIPTION_ID }}"
           RG="${{ env.RESOURCE_GROUP }}"
@@ -479,165 +465,28 @@ jobs:
             --output tsv)
           echo "::add-mask::$TOKEN"
 
-          DEPLOY_BASE="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/extensions/onedeploy?api-version=2023-12-01&remoteBuild=false"
+          DEPLOY_URL="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/extensions/onedeploy?api-version=2023-12-01&remoteBuild=true&type=zip"
 
-          BLOB_NAME="func-package-${{ github.sha }}.zip"
-          CONTAINER="${{ env.DEPLOYMENT_CONTAINER }}"
-          DEPLOYED=false
           echo "Package size: $(du -h func-package.zip | cut -f1)"
 
-          # ── 1. Extract storage key from Function App's AzureWebJobsStorage setting ──
-          # The SP can read Function App config even without direct storage account
-          # permissions. The connection string contains AccountKey.
-          echo "Reading AzureWebJobsStorage from Function App config..."
-          CONN_STRING=""
-          CONN_STRING=$(az functionapp config appsettings list \
-            --name "$FA" --resource-group "$RG" \
-            ${{ env.SUBSCRIPTION_ID && format('--subscription {0}', env.SUBSCRIPTION_ID) || '' }} \
-            --query "[?name=='AzureWebJobsStorage'].value" --output tsv 2>/dev/null) || true
+          HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
+            --max-time 600 \
+            -X PUT \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @func-package.zip \
+            "$DEPLOY_URL")
 
-          STORAGE_KEY=""
-          SA_NAME="${{ env.STORAGE_ACCOUNT_NAME }}"
-
-          if [ -n "$CONN_STRING" ]; then
-            # Extract AccountKey from connection string
-            STORAGE_KEY=$(echo "$CONN_STRING" | python3 -c "
-          import sys
-          cs = sys.stdin.read().strip()
-          for part in cs.split(';'):
-              if part.startswith('AccountKey='):
-                  print(part[len('AccountKey='):])
-                  break
-          " 2>/dev/null) || true
-
-            # Extract AccountName from connection string (use actual name from config)
-            CS_ACCOUNT=$(echo "$CONN_STRING" | python3 -c "
-          import sys
-          cs = sys.stdin.read().strip()
-          for part in cs.split(';'):
-              if part.startswith('AccountName='):
-                  print(part[len('AccountName='):])
-                  break
-          " 2>/dev/null) || true
-
-            if [ -n "$CS_ACCOUNT" ]; then
-              if [ -n "$SA_NAME" ] && [ "$CS_ACCOUNT" != "$SA_NAME" ]; then
-                echo "::warning::Storage account in config ($CS_ACCOUNT) differs from secret ($SA_NAME). Using config value."
-              fi
-              SA_NAME="$CS_ACCOUNT"
-            fi
-          fi
-
-          if [ -n "$STORAGE_KEY" ]; then
-            echo "::add-mask::$STORAGE_KEY"
-            echo "✅ Storage key extracted from AzureWebJobsStorage config"
+          if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
+            echo "✅ Deployment succeeded (HTTP $HTTP_STATUS)"
           else
-            echo "::warning::Could not extract key from AzureWebJobsStorage."
-
-            # Fallback: derive storage account name if not set
-            if [ -z "$SA_NAME" ]; then
-              SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-22)st
-              echo "::warning::Derived storage account name: $SA_NAME"
-            fi
-
-            # Try ARM REST API for listKeys (may fail with 403 if SP lacks storage permissions)
-            echo "Trying ARM REST API to list storage account keys..."
-            KEYS_URL="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}/listKeys?api-version=2023-01-01"
-            KEYS_RESPONSE=$(curl -s "$KEYS_URL" -X POST \
-              -H "Authorization: Bearer $TOKEN" -H "Content-Length: 0")
-            STORAGE_KEY=$(echo "$KEYS_RESPONSE" | python3 -c "
-          import sys, json
-          try:
-              d = json.load(sys.stdin)
-              print(d['keys'][0]['value'])
-          except:
-              pass
-          " 2>/dev/null) || true
-
-            if [ -n "$STORAGE_KEY" ]; then
-              echo "::add-mask::$STORAGE_KEY"
-              echo "✅ Storage key from ARM API"
-            else
-              echo "::warning::Cannot obtain storage key from ARM (SP may lack storage permissions)."
-            fi
-          fi
-
-          # ── 2. Upload blob & deploy via URL ──
-          if [ -n "$STORAGE_KEY" ]; then
-            echo "Using storage account: $SA_NAME"
-            echo "Creating container '${CONTAINER}'..."
-            az storage container create \
-              --account-name "$SA_NAME" \
-              --account-key "$STORAGE_KEY" \
-              --name "$CONTAINER" \
-              --output none 2>&1 || echo "::warning::Container create returned error (may already exist)"
-
-            echo "Uploading func-package.zip to blob..."
-            if az storage blob upload \
-              --account-name "$SA_NAME" \
-              --account-key "$STORAGE_KEY" \
-              --container-name "$CONTAINER" \
-              --name "$BLOB_NAME" \
-              --file func-package.zip \
-              --overwrite \
-              --output none 2>&1; then
-
-              echo "✅ Blob upload succeeded"
-
-              EXPIRY=$(python3 -c "from datetime import datetime,timezone,timedelta; print((datetime.now(timezone.utc)+timedelta(hours=2)).strftime('%Y-%m-%dT%H:%MZ'))")
-              PACKAGE_URL=$(az storage blob generate-sas \
-                --account-name "$SA_NAME" \
-                --account-key "$STORAGE_KEY" \
-                --container-name "$CONTAINER" \
-                --name "$BLOB_NAME" \
-                --permissions r \
-                --expiry "$EXPIRY" \
-                --full-uri \
-                --output tsv)
-              echo "::add-mask::$PACKAGE_URL"
-
-              PACKAGE_JSON=$(printf '{"packageUri":"%s"}' "$PACKAGE_URL")
-              HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
-                --max-time 600 \
-                -X PUT \
-                -H "Authorization: Bearer $TOKEN" \
-                -H "Content-Type: application/json" \
-                --data-binary "$PACKAGE_JSON" \
-                "${DEPLOY_BASE}&type=url")
-
-              if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
-                echo "✅ Deployment succeeded via URL (HTTP $HTTP_STATUS)"
-                DEPLOYED=true
-              else
-                echo "::warning::URL-based deploy failed (HTTP $HTTP_STATUS)"
-                cat /tmp/deploy-response.txt 2>/dev/null || true
-              fi
-            else
-              echo "::warning::Blob upload failed"
-            fi
-          fi
-
-          # ── 3. Fallback: inline zip ──
-          if [[ "$DEPLOYED" != "true" ]]; then
-            echo "::warning::Falling back to inline zip deployment..."
-            HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
-              --max-time 600 \
-              -X PUT \
-              -H "Authorization: Bearer $TOKEN" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary @func-package.zip \
-              "${DEPLOY_BASE}&type=zip")
-            if [[ "$HTTP_STATUS" != "200" ]] && [[ "$HTTP_STATUS" != "202" ]]; then
-              echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
-              cat /tmp/deploy-response.txt 2>/dev/null || true
-              echo "::error::All deployment methods failed."
-              echo "Troubleshooting:"
-              echo "  1. Ensure Function App '$FA' has AzureWebJobsStorage set correctly"
-              echo "  2. Grant SP 'Storage Account Key Operator Service Role' on storage account"
-              echo "  3. Or run 'Deploy Infrastructure' workflow to provision resources"
-              exit 1
-            fi
-            echo "✅ Deployment succeeded via inline upload (HTTP $HTTP_STATUS)"
+            echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
+            cat /tmp/deploy-response.txt 2>/dev/null || true
+            echo "Troubleshooting:"
+            echo "  1. Ensure Function App '$FA' exists and is running"
+            echo "  2. Ensure SP has Web Contributor on the Function App"
+            echo "  3. Run 'Deploy Infrastructure' workflow if resources are not provisioned"
+            exit 1
           fi
 
       - name: Configure Function App CORS
