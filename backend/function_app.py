@@ -621,32 +621,34 @@ async def admin_analytics_users(req: func.HttpRequest) -> func.HttpResponse:
         client = LogsQueryClient(credential)
 
         # ユーザーごとの活動集計 (90日)
+        # ワークスペースベース App Insights: テーブル名は AppEvents / AppPageViews、
+        # カラム名は Name, TimeGenerated, UserAuthenticatedId (クラシックとは異なる)
         kql_users = """
-union isfuzzy=true customEvents, pageViews
-| where timestamp > ago(90d)
-| where isnotempty(user_AuthenticatedId)
+AppEvents
+| where TimeGenerated > ago(90d)
+| where isnotempty(UserAuthenticatedId)
 | summarize
     totalEvents   = count(),
-    lastActivity  = max(timestamp),
-    firstActivity = min(timestamp),
-    activeDays    = dcount(bin(timestamp, 1d)),
-    noteCreated   = countif(name == 'note_created'),
-    noteSaved     = countif(name == 'note_saved'),
-    agentMessages = countif(name == 'agent_message_sent'),
-    templateApplied   = countif(name == 'template_applied'),
-    suggestionApplied = countif(name == 'suggestion_applied')
-  by user_AuthenticatedId
+    lastActivity  = max(TimeGenerated),
+    firstActivity = min(TimeGenerated),
+    activeDays    = dcount(bin(TimeGenerated, 1d)),
+    noteCreated   = countif(Name == 'note_created'),
+    noteSaved     = countif(Name == 'note_saved'),
+    agentMessages = countif(Name == 'agent_message_sent'),
+    templateApplied   = countif(Name == 'template_applied'),
+    suggestionApplied = countif(Name == 'suggestion_applied')
+  by UserAuthenticatedId
 | order by totalEvents desc
 | take 100
         """
 
         # ユーザーごとの30日間日別イベント数 (スパークライン用)
         kql_daily = """
-union isfuzzy=true customEvents, pageViews
-| where timestamp > ago(30d)
-| where isnotempty(user_AuthenticatedId)
-| summarize count() by user_AuthenticatedId, day = format_datetime(bin(timestamp, 1d), 'yyyy-MM-dd')
-| order by user_AuthenticatedId, day
+AppEvents
+| where TimeGenerated > ago(30d)
+| where isnotempty(UserAuthenticatedId)
+| summarize count() by UserAuthenticatedId, day = format_datetime(bin(TimeGenerated, 1d), 'yyyy-MM-dd')
+| order by UserAuthenticatedId, day
         """
 
         from azure.core.exceptions import HttpResponseError
@@ -683,7 +685,7 @@ union isfuzzy=true customEvents, pageViews
             daily_cols = [c.name for c in daily_table.columns]
             for row in daily_resp.tables[0].rows:
                 rd = dict(zip(daily_cols, row))
-                email = rd.get("user_AuthenticatedId", "")
+                email = rd.get("UserAuthenticatedId", "")
                 daily_map.setdefault(email, []).append(
                     {"day": rd.get("day", ""), "count": int(rd.get("count_", 0))}
                 )
@@ -693,7 +695,7 @@ union isfuzzy=true customEvents, pageViews
         users: list = []
         for row in users_resp.tables[0].rows:
             rd = dict(zip(cols, row))
-            email = rd.get("user_AuthenticatedId", "")
+            email = rd.get("UserAuthenticatedId", "")
             last_ts = rd.get("lastActivity")
             first_ts = rd.get("firstActivity")
             users.append({
