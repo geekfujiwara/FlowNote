@@ -25,10 +25,10 @@ param azureOpenAiApiVersion string = '2025-04-01-preview'
 param azureOpenAiCapacity int = 10
 
 @description('Azure OpenAI model deployment name')
-param azureOpenAiDeploymentName string = 'gpt-4o-mini'
+param azureOpenAiDeploymentName string
 
 @description('Azure OpenAI model name')
-param azureOpenAiModelName string = 'gpt-4o-mini'
+param azureOpenAiModelName string
 
 @description('Azure OpenAI model version')
 param azureOpenAiModelVersion string = '2024-08-06'
