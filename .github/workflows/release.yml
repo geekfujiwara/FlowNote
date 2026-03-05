@@ -9,6 +9,8 @@
 #   AZURE_FUNCTIONAPP_NAME             Function App name (e.g. flownote-prod-func)
 #   AZURE_STORAGE_ACCOUNT_NAME         Storage account name (e.g. flownoteprodst)
 #   AZURE_SWA_NAME                     Static Web App name (e.g. flownote-prod-swa)
+#   AZURE_FUNCTIONAPP_SCM_USER          SCM basic auth user  (gets.azurewebsites.net/$user)
+#   AZURE_FUNCTIONAPP_SCM_PASS          SCM basic auth password
 #   AZURE_STATIC_WEB_APPS_API_TOKEN    SWA deploy token (fetched from Azure if AZURE_CREDENTIALS is set)
 #   VITE_API_BASE_URL                  Azure Functions URL
 #   LOGIN_PASSWORD                     Plain-text login password (hashed to SHA-256 at build time)
@@ -339,7 +341,13 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Package backend (source only – remote build installs deps)
+      - name: Install backend dependencies
+        run: |
+          python3 -m pip install --no-cache-dir --quiet \
+            -r backend/requirements.txt \
+            -t backend/.python_packages/lib/site-packages 2>&1 | tail -5
+
+      - name: Package backend
         run: |
           cd backend
           zip -r ../func-package.zip . \
@@ -353,8 +361,9 @@ jobs:
             -x ".env.*" \
             -x "tests/*" \
             -x "*.test.py" \
-            -x "e2e-results/*" \
-            -x ".python_packages/*"
+            -x "e2e-results/*"
+          cd ..
+          echo "Package size: $(du -h func-package.zip | cut -f1)"
 
       - name: Azure Login
         uses: azure/login@v2
@@ -455,127 +464,81 @@ jobs:
           fi
 
       - name: Deploy to Azure Functions
-        # Three deployment methods tried in order:
-        #   1. az functionapp deployment source config-zip (supports --build-remote)
-        #   2. SCM /api/zipdeploy with publishing credentials (source zip + remote build)
-        #   3. Full package (pip install locally) + SCM zipdeploy (no remote build)
-        # Methods 2 & 3 use publishing credentials — the Kudu/SCM service accesses
-        # blob storage via the Function App's own identity, NOT the SP.
+        # Flex Consumption (FC1): deploy via SCM Basic Auth (pre-stored credentials).
+        # This bypasses SP RBAC entirely – the SCM service uses the Function App's
+        # own identity for blob storage access.
+        # Priority: 1) dedicated SCM secrets  2) publishing credentials via az CLI
+        env:
+          SCM_USER: ${{ secrets.AZURE_FUNCTIONAPP_SCM_USER }}
+          SCM_PASS: ${{ secrets.AZURE_FUNCTIONAPP_SCM_PASS }}
         run: |
           set -uo pipefail
-          SUB="${{ env.SUBSCRIPTION_ID }}"
-          RG="${{ env.RESOURCE_GROUP }}"
           FA="${{ env.FUNCTION_APP_NAME }}"
-          echo "Source package size: $(du -h func-package.zip | cut -f1)"
+          RG="${{ env.RESOURCE_GROUP }}"
+          SUB="${{ env.SUBSCRIPTION_ID }}"
+          SCM_HOST="${FA}.scm.azurewebsites.net"
 
-          # Pre-fetch publishing credentials for methods 2 & 3
-          # Capture stderr separately to avoid mixing warnings into JSON
-          echo "Fetching publishing credentials..."
-          CREDS_JSON=""
-          if CREDS_JSON=$(az functionapp deployment list-publishing-credentials \
-            --resource-group "$RG" --name "$FA" --subscription "$SUB" \
-            --output json 2>/dev/null); then
-            echo "Publishing credentials fetched successfully"
+          echo "Package size: $(du -h func-package.zip | cut -f1)"
+
+          # ── Resolve SCM credentials ──
+          AUTH_USER=""
+          AUTH_PASS=""
+
+          # Method A: dedicated SCM secrets
+          if [ -n "${SCM_USER:-}" ] && [ -n "${SCM_PASS:-}" ]; then
+            AUTH_USER="$SCM_USER"
+            AUTH_PASS="$SCM_PASS"
+            echo "✅ Using dedicated SCM credentials from secrets"
           else
-            echo "::warning::Failed to fetch publishing credentials"
-            CREDS_JSON="{}"
+            # Method B: fetch publishing credentials via az CLI
+            echo "SCM secrets not set – fetching publishing credentials from Azure..."
+            CREDS_JSON=""
+            if CREDS_JSON=$(az functionapp deployment list-publishing-credentials \
+              --resource-group "$RG" --name "$FA" --subscription "$SUB" \
+              --output json 2>/dev/null); then
+              AUTH_USER=$(echo "$CREDS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('publishingUserName',''))" 2>/dev/null || echo "")
+              AUTH_PASS=$(echo "$CREDS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('publishingPassword',''))" 2>/dev/null || echo "")
+              if [ -n "$AUTH_USER" ] && [ -n "$AUTH_PASS" ]; then
+                echo "✅ Publishing credentials fetched via az CLI"
+              fi
+            fi
           fi
-          SCM_URI=$(echo "$CREDS_JSON" | python3 -c "
-          import sys, json
-          try:
-              d = json.load(sys.stdin)
-              # scmUri includes credentials in URL: https://user:pass@host.scm.azurewebsites.net
-              uri = d.get('scmUri', '')
-              if not uri:
-                  # Fallback: construct from publishingUserName + publishingPassword
-                  user = d.get('publishingUserName', '')
-                  pwd  = d.get('publishingPassword', '')
-                  name = d.get('name', '').split('/')[-1] if '/' in d.get('name','') else d.get('name','')
-                  if user and pwd and name:
-                      import urllib.parse
-                      uri = f'https://{urllib.parse.quote(user,safe=\"\")}:{urllib.parse.quote(pwd,safe=\"\")}@{name}.scm.azurewebsites.net'
-              print(uri)
-          except: print('')" 2>/dev/null || echo "")
-          if [ -n "$SCM_URI" ]; then
-            echo "::add-mask::$SCM_URI"
-            echo "SCM endpoint: found"
+
+          if [ -z "$AUTH_USER" ] || [ -z "$AUTH_PASS" ]; then
+            echo "::error::No SCM credentials available. Set AZURE_FUNCTIONAPP_SCM_USER and AZURE_FUNCTIONAPP_SCM_PASS secrets, or grant the SP Microsoft.Web/sites/config/list/Action."
+            echo "To get SCM credentials manually:"
+            echo "  az functionapp deployment list-publishing-credentials --name $FA --resource-group $RG --subscription $SUB"
+            exit 1
+          fi
+
+          echo "::add-mask::$AUTH_USER"
+          echo "::add-mask::$AUTH_PASS"
+
+          # ── Deploy via SCM /api/publish ──
+          DEPLOY_URL="https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
+          echo "Deploying to: https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
+
+          HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" \
+            -X POST "$DEPLOY_URL" \
+            -u "${AUTH_USER}:${AUTH_PASS}" \
+            -H "Content-Type: application/zip" \
+            --max-time 600 \
+            --data-binary @func-package.zip)
+
+          echo "HTTP Response: $HTTP_STATUS"
+          cat /tmp/deploy-response.json 2>/dev/null || true
+
+          if [[ "$HTTP_STATUS" =~ ^2 ]]; then
+            echo "✅ Deployment succeeded (HTTP $HTTP_STATUS)"
           else
-            echo "::warning::SCM endpoint: not found — Methods 2 & 3 will be skipped"
+            echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
+            echo "Troubleshooting:"
+            echo "  1. Ensure Function App '$FA' exists and is running"
+            echo "  2. Check SCM credentials are valid (re-fetch from Azure Portal)"
+            echo "  3. Check if storage public network access is disabled"
+            echo "  4. Run 'Deploy Infrastructure' workflow if resources are not provisioned"
+            exit 1
           fi
-
-          # ── Method 1: az functionapp deployment source config-zip ──
-          echo ""
-          echo "═══ Method 1: az functionapp deployment source config-zip --build-remote ═══"
-          if az functionapp deployment source config-zip \
-               --resource-group "$RG" --name "$FA" --subscription "$SUB" \
-               --src func-package.zip \
-               --build-remote true \
-               --timeout 600 2>&1; then
-            echo "✅ Deployment succeeded (Method 1: config-zip --build-remote)"
-            exit 0
-          fi
-          echo "::warning::Method 1 (config-zip) failed – trying SCM deploy"
-
-          # ── Method 2: SCM zipdeploy (source only + remote build) ──
-          if [ -n "$SCM_URI" ]; then
-            echo ""
-            echo "═══ Method 2: SCM zipdeploy (source + remote build) ═══"
-            # Enable remote build via app settings (best-effort)
-            az functionapp config appsettings set \
-              --name "$FA" --resource-group "$RG" --subscription "$SUB" \
-              --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true ENABLE_ORYX_BUILD=true \
-              --output none 2>/dev/null || true
-
-            HTTP_STATUS=$(curl -s -o /tmp/scm-response.txt -w "%{http_code}" \
-              --max-time 600 -X POST \
-              "${SCM_URI}/api/zipdeploy?isAsync=false" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary @func-package.zip)
-            echo "SCM zipdeploy returned HTTP $HTTP_STATUS"
-            if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
-              echo "✅ Deployment succeeded (Method 2: SCM zipdeploy, HTTP $HTTP_STATUS)"
-              exit 0
-            fi
-            echo "::warning::Method 2 failed (HTTP $HTTP_STATUS)"
-            cat /tmp/scm-response.txt 2>/dev/null | head -20 || true
-
-            # ── Method 3: Full package (with deps) + SCM deploy ──
-            echo ""
-            echo "═══ Method 3: full package + SCM zipdeploy ═══"
-            echo "Installing Python dependencies locally..."
-            python3 -m pip install --no-cache-dir --quiet \
-              -r backend/requirements.txt \
-              -t backend/.python_packages/lib/site-packages 2>&1 | tail -5
-            echo "Creating full deployment package..."
-            (cd backend && zip -qr ../func-pkg-full.zip . \
-              -x "local.settings.json" \
-              -x ".venv/*" -x "venv/*" \
-              -x "*/__pycache__/*" -x "__pycache__/*" -x "*.pyc" \
-              -x ".env" -x ".env.*" \
-              -x "tests/*" -x "*.test.py" -x "e2e-results/*")
-            echo "Full package size: $(du -h func-pkg-full.zip | cut -f1)"
-
-            HTTP_STATUS=$(curl -s -o /tmp/scm-full-response.txt -w "%{http_code}" \
-              --max-time 900 -X POST \
-              "${SCM_URI}/api/zipdeploy?isAsync=false" \
-              -H "Content-Type: application/octet-stream" \
-              --data-binary @func-pkg-full.zip)
-            echo "SCM full deploy returned HTTP $HTTP_STATUS"
-            if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
-              echo "✅ Deployment succeeded (Method 3: SCM full package, HTTP $HTTP_STATUS)"
-              exit 0
-            fi
-            echo "::warning::Method 3 failed (HTTP $HTTP_STATUS)"
-            cat /tmp/scm-full-response.txt 2>/dev/null | head -20 || true
-          fi
-
-          echo "::error::All deployment methods failed."
-          echo "Troubleshooting:"
-          echo "  1. Ensure Function App '$FA' exists and is running"
-          echo "  2. Ensure SP has Web Contributor on the Function App"
-          echo "  3. Check if storage public network access is disabled"
-          echo "  4. Run 'Deploy Infrastructure' workflow if resources are not provisioned"
-          exit 1
 
       - name: Configure Function App CORS
         # Ensure CORS wildcard is set on the deployed Function App on every release.
