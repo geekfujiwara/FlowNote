@@ -473,11 +473,14 @@ jobs:
           SCM_PASS: ${{ secrets.AZURE_FUNCTIONAPP_SCM_PASS }}
         run: |
           set -uo pipefail
-          FA="${{ env.FUNCTION_APP_NAME }}"
-          RG="${{ env.RESOURCE_GROUP }}"
-          SUB="${{ env.SUBSCRIPTION_ID }}"
+          # Trim whitespace/newlines from secret values
+          FA="$(echo -n "${{ env.FUNCTION_APP_NAME }}" | tr -d '[:space:]')"
+          RG="$(echo -n "${{ env.RESOURCE_GROUP }}" | tr -d '[:space:]')"
+          SUB="$(echo -n "${{ env.SUBSCRIPTION_ID }}" | tr -d '[:space:]')"
           SCM_HOST="${FA}.scm.azurewebsites.net"
 
+          echo "Function App name length: ${#FA}"
+          echo "SCM host: ${SCM_HOST}"
           echo "Package size: $(du -h func-package.zip | cut -f1)"
 
           # ── Resolve SCM credentials ──
@@ -514,43 +517,86 @@ jobs:
           echo "::add-mask::$AUTH_USER"
           echo "::add-mask::$AUTH_PASS"
 
+          # ── DNS resolution with fallback ──
+          echo "=== DNS Resolution ==="
+          RESOLVE_FLAG=""
+          set +e
+
+          # Try system resolver first
+          echo "1) System resolver (nslookup):"
+          nslookup "${SCM_HOST}" 2>&1 | head -8
+          SYS_DNS_OK=$?
+
+          if [ $SYS_DNS_OK -ne 0 ]; then
+            echo "::warning::System DNS failed. Trying Google DNS (8.8.8.8)..."
+
+            # Try dig with Google DNS
+            if command -v dig &>/dev/null; then
+              echo "2) dig @8.8.8.8:"
+              SCM_IP=$(dig +short @8.8.8.8 "${SCM_HOST}" A 2>/dev/null | grep -E '^[0-9]+\.' | tail -1)
+            fi
+
+            # Try host command as another fallback
+            if [ -z "${SCM_IP:-}" ] && command -v host &>/dev/null; then
+              echo "3) host command @8.8.8.8:"
+              SCM_IP=$(host "${SCM_HOST}" 8.8.8.8 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
+            fi
+
+            # Try getent as last resort
+            if [ -z "${SCM_IP:-}" ]; then
+              echo "4) getent ahosts:"
+              SCM_IP=$(getent ahosts "${SCM_HOST}" 2>/dev/null | head -1 | awk '{print $1}')
+            fi
+
+            if [ -n "${SCM_IP:-}" ]; then
+              echo "✅ Resolved ${SCM_HOST} → ${SCM_IP} (via alternative DNS)"
+              RESOLVE_FLAG="--resolve ${SCM_HOST}:443:${SCM_IP}"
+            else
+              echo "::warning::All DNS methods failed for ${SCM_HOST}"
+              # Last resort: try curl anyway – it may use a different resolver
+            fi
+          else
+            echo "✅ System DNS resolved ${SCM_HOST}"
+          fi
+          set -e
+
           # ── Deploy via SCM /api/publish ──
           DEPLOY_URL="https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
-          echo "Deploying to: https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
+          echo "Deploying to: ${DEPLOY_URL}"
 
-          # DNS check
-          echo "Resolving ${SCM_HOST}..."
-          nslookup "${SCM_HOST}" 2>&1 | head -6 || echo "::warning::nslookup failed"
-
-          # Disable errexit for curl so we can capture failures
           set +e
           HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" \
+            ${RESOLVE_FLAG} \
             -X POST "$DEPLOY_URL" \
             -u "${AUTH_USER}:${AUTH_PASS}" \
             -H "Content-Type: application/zip" \
+            --connect-timeout 30 \
             --max-time 600 \
+            --retry 2 --retry-delay 10 --retry-connrefused \
             --data-binary @func-package.zip)
           CURL_EXIT=$?
           set -e
 
           if [ $CURL_EXIT -ne 0 ]; then
-            echo "::warning::curl exited with code $CURL_EXIT"
-            # Try zipdeploy endpoint as fallback (different API path)
+            echo "::warning::curl /api/publish exited with code $CURL_EXIT"
             echo "Trying /api/zipdeploy endpoint as fallback..."
             DEPLOY_URL2="https://${SCM_HOST}/api/zipdeploy?isAsync=false"
             set +e
             HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" \
+              ${RESOLVE_FLAG} \
               -X POST "$DEPLOY_URL2" \
               -u "${AUTH_USER}:${AUTH_PASS}" \
               -H "Content-Type: application/octet-stream" \
+              --connect-timeout 30 \
               --max-time 600 \
+              --retry 2 --retry-delay 10 --retry-connrefused \
               --data-binary @func-package.zip)
             CURL_EXIT=$?
             set -e
             if [ $CURL_EXIT -ne 0 ]; then
               echo "::error::curl failed with exit code $CURL_EXIT for both /api/publish and /api/zipdeploy"
-              echo "This usually means the SCM host could not be reached."
-              echo "Check if the Function App is running and the SCM endpoint is accessible."
+              echo "SCM_HOST=${SCM_HOST} | FA length=${#FA} | RESOLVE_FLAG=${RESOLVE_FLAG:-none}"
+              echo "Check: 1) Function App exists 2) SCM endpoint is accessible 3) DNS can resolve the hostname"
               exit 1
             fi
           fi
@@ -562,11 +608,11 @@ jobs:
             echo "✅ Deployment succeeded (HTTP $HTTP_STATUS)"
           else
             echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
+            cat /tmp/deploy-response.json 2>/dev/null || true
             echo "Troubleshooting:"
             echo "  1. Ensure Function App '$FA' exists and is running"
             echo "  2. Check SCM credentials are valid (re-fetch from Azure Portal)"
             echo "  3. Check if storage public network access is disabled"
-            echo "  4. Run 'Deploy Infrastructure' workflow if resources are not provisioned"
             exit 1
           fi
 
