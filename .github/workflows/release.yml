@@ -456,7 +456,7 @@ jobs:
 
       - name: Deploy to Azure Functions
         # Three deployment methods tried in order:
-        #   1. az functionapp deploy --build-remote (CLI native, may use SCM internally)
+        #   1. az functionapp deployment source config-zip (supports --build-remote)
         #   2. SCM /api/zipdeploy with publishing credentials (source zip + remote build)
         #   3. Full package (pip install locally) + SCM zipdeploy (no remote build)
         # Methods 2 & 3 use publishing credentials — the Kudu/SCM service accesses
@@ -469,34 +469,52 @@ jobs:
           echo "Source package size: $(du -h func-package.zip | cut -f1)"
 
           # Pre-fetch publishing credentials for methods 2 & 3
+          # Capture stderr separately to avoid mixing warnings into JSON
           echo "Fetching publishing credentials..."
-          CREDS_JSON=$(az functionapp deployment list-publishing-credentials \
+          CREDS_JSON=""
+          if CREDS_JSON=$(az functionapp deployment list-publishing-credentials \
             --resource-group "$RG" --name "$FA" --subscription "$SUB" \
-            --output json 2>&1) || CREDS_JSON="{}"
+            --output json 2>/dev/null); then
+            echo "Publishing credentials fetched successfully"
+          else
+            echo "::warning::Failed to fetch publishing credentials"
+            CREDS_JSON="{}"
+          fi
           SCM_URI=$(echo "$CREDS_JSON" | python3 -c "
           import sys, json
           try:
               d = json.load(sys.stdin)
-              print(d.get('scmUri', ''))
+              # scmUri includes credentials in URL: https://user:pass@host.scm.azurewebsites.net
+              uri = d.get('scmUri', '')
+              if not uri:
+                  # Fallback: construct from publishingUserName + publishingPassword
+                  user = d.get('publishingUserName', '')
+                  pwd  = d.get('publishingPassword', '')
+                  name = d.get('name', '').split('/')[-1] if '/' in d.get('name','') else d.get('name','')
+                  if user and pwd and name:
+                      import urllib.parse
+                      uri = f'https://{urllib.parse.quote(user,safe=\"\")}:{urllib.parse.quote(pwd,safe=\"\")}@{name}.scm.azurewebsites.net'
+              print(uri)
           except: print('')" 2>/dev/null || echo "")
           if [ -n "$SCM_URI" ]; then
             echo "::add-mask::$SCM_URI"
             echo "SCM endpoint: found"
           else
-            echo "SCM endpoint: not found"
+            echo "::warning::SCM endpoint: not found — Methods 2 & 3 will be skipped"
           fi
 
-          # ── Method 1: az functionapp deploy ──
+          # ── Method 1: az functionapp deployment source config-zip ──
           echo ""
-          echo "═══ Method 1: az functionapp deploy --build-remote true ═══"
-          if az functionapp deploy \
+          echo "═══ Method 1: az functionapp deployment source config-zip --build-remote ═══"
+          if az functionapp deployment source config-zip \
                --resource-group "$RG" --name "$FA" --subscription "$SUB" \
-               --src-path func-package.zip --type zip \
-               --build-remote true 2>&1; then
-            echo "✅ Deployment succeeded (Method 1: az functionapp deploy)"
+               --src func-package.zip \
+               --build-remote true \
+               --timeout 600 2>&1; then
+            echo "✅ Deployment succeeded (Method 1: config-zip --build-remote)"
             exit 0
           fi
-          echo "::warning::Method 1 (az functionapp deploy) failed – trying SCM deploy"
+          echo "::warning::Method 1 (config-zip) failed – trying SCM deploy"
 
           # ── Method 2: SCM zipdeploy (source only + remote build) ──
           if [ -n "$SCM_URI" ]; then
