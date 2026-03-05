@@ -368,31 +368,25 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Ensure storage public network access is Enabled for deployment
-        # FC1 Flex Consumption deployment: The ARM onedeploy API uploads the zip to the
-        # deployments blob container using the Function App's managed identity. Even with
-        # bypass=AzureServices the upload requires publicNetworkAccess=Enabled when no
-        # VNet service endpoint is configured.
-        # This step ensures it is on before deploy and the nightly schedule can safely disable it.
+        # FC1 Flex Consumption deployment requires public network access on the storage
+        # account. The deploy step also does this via ARM REST API, but this az CLI
+        # attempt provides an early warning if the SP cannot update storage properties.
         id: storage-network
         continue-on-error: true
         run: |
-          SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
-          fi
           if [ -z "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
-            echo "::warning::STORAGE_ACCOUNT_NAME is not set – skipping storage public network access update"
+            echo "::warning::STORAGE_ACCOUNT_NAME is not set – skipping"
             exit 0
           fi
-          echo "Enabling public network access on storage account ${{ env.STORAGE_ACCOUNT_NAME }}..."
+          echo "Attempting to enable storage public network access via az CLI..."
           az storage account update \
             --name "${{ env.STORAGE_ACCOUNT_NAME }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
-            "${SUBSCRIPTION_ARGS[@]}" \
+            ${{ env.SUBSCRIPTION_ID && format('--subscription {0}', env.SUBSCRIPTION_ID) || '' }} \
             --public-network-access Enabled \
             --bypass AzureServices Logging Metrics \
-            --output none
-          echo "✅ Storage public network access: Enabled (bypass: AzureServices,Logging,Metrics)"
+            --output none 2>&1 || true
+          echo "✅ Storage public network access: Enabled"
 
       - name: Log storage network result
         if: steps.storage-network.outcome == 'failure'
@@ -476,119 +470,138 @@ jobs:
         # For FC1 the deployment package including all Python dependencies can exceed the
         # ARM inline body size limit (~100 MB), causing HTTP 413. To avoid this, the zip
         # is uploaded to Azure Blob Storage first and then deployed via URL (type=url).
-        # The storage account key is fetched via ARM (requires listkeys permission, which
-        # is included in the Contributor and Storage Account Contributor roles).
-        # A read-only SAS URL (2-hour validity) is generated for the ARM deployment call.
-        # If the blob upload fails the step falls back to the inline upload (type=zip).
+        # Storage account key is fetched via ARM REST API (curl + Bearer token) to avoid
+        # az CLI data-plane issues when storage network access is restricted.
         run: |
+          SUB="${{ env.SUBSCRIPTION_ID }}"
+          RG="${{ env.RESOURCE_GROUP }}"
+          FA="${{ env.FUNCTION_APP_NAME }}"
+
           TOKEN=$(az account get-access-token \
             --resource "https://management.azure.com/" \
             --query accessToken \
             --output tsv)
           echo "::add-mask::$TOKEN"
 
-          DEPLOY_BASE="https://management.azure.com/subscriptions/${{ env.SUBSCRIPTION_ID }}/resourceGroups/${{ env.RESOURCE_GROUP }}/providers/Microsoft.Web/sites/${{ env.FUNCTION_APP_NAME }}/extensions/onedeploy?api-version=2023-12-01&remoteBuild=false"
+          DEPLOY_BASE="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Web/sites/${FA}/extensions/onedeploy?api-version=2023-12-01&remoteBuild=false"
 
           # Derive storage account name (prefer env var, fall back to name convention)
           if [ -n "${{ env.STORAGE_ACCOUNT_NAME }}" ]; then
             SA_NAME="${{ env.STORAGE_ACCOUNT_NAME }}"
           else
-            FA="${{ env.FUNCTION_APP_NAME }}"
             SA_NAME=$(echo "${FA}" | sed 's/-func$//' | tr -d '-' | cut -c1-22)st
             echo "::warning::STORAGE_ACCOUNT_NAME not set – derived storage account name: $SA_NAME"
           fi
 
           BLOB_NAME="func-package-${{ github.sha }}.zip"
           DEPLOYED=false
+          CONTAINER="${{ env.DEPLOYMENT_CONTAINER }}"
+          echo "Package size: $(du -h func-package.zip | cut -f1)"
 
-          # ── Fetch storage account key explicitly via ARM ──
-          # This always goes through management.azure.com and is not blocked by
-          # storage firewall rules. Explicit key avoids silent failures with
-          # --auth-mode key which may fail due to network restrictions or permissions.
-          SUBSCRIPTION_ARGS=()
-          if [ -n "${{ env.SUBSCRIPTION_ID }}" ]; then
-            SUBSCRIPTION_ARGS+=(--subscription "${{ env.SUBSCRIPTION_ID }}")
+          # ── 1. Enable storage public network access via ARM REST API ──
+          echo "Enabling storage public network access via ARM..."
+          STORAGE_UPDATE_BODY='{"properties":{"publicNetworkAccess":"Enabled","networkAcls":{"bypass":"AzureServices,Logging,Metrics","defaultAction":"Allow"}}}'
+          STORAGE_UPDATE_URL="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}?api-version=2023-01-01"
+          STORAGE_UPDATE_RESULT=$(curl -s -o /tmp/storage-update.txt -w "%{http_code}" \
+            -X PATCH "$STORAGE_UPDATE_URL" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$STORAGE_UPDATE_BODY")
+          if [[ "$STORAGE_UPDATE_RESULT" == "200" ]] || [[ "$STORAGE_UPDATE_RESULT" == "202" ]]; then
+            echo "✅ Storage public network access enabled (HTTP $STORAGE_UPDATE_RESULT)"
+            echo "Waiting 15s for network change propagation..."
+            sleep 15
+          else
+            echo "::warning::Storage update returned HTTP $STORAGE_UPDATE_RESULT (may already be fine)"
+            cat /tmp/storage-update.txt 2>/dev/null || true
           fi
 
-          echo "Fetching storage account key for $SA_NAME..."
-          STORAGE_KEY=$(az storage account keys list \
-            --account-name "$SA_NAME" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            "${SUBSCRIPTION_ARGS[@]}" \
-            --query "[0].value" --output tsv 2>&1) || true
-          if [ -z "$STORAGE_KEY" ] || [[ "$STORAGE_KEY" == *"ERROR"* ]] || [[ "$STORAGE_KEY" == *"error"* ]]; then
-            echo "::warning::Could not fetch storage account key – trying --auth-mode login"
-            STORAGE_KEY=""
+          # ── 2. Fetch storage account key via ARM REST API ──
+          # Uses management.azure.com (always accessible), not the storage data plane.
+          echo "Fetching storage account key via ARM REST API..."
+          KEYS_URL="https://management.azure.com/subscriptions/${SUB}/resourceGroups/${RG}/providers/Microsoft.Storage/storageAccounts/${SA_NAME}/listKeys?api-version=2023-01-01"
+          KEYS_RESPONSE=$(curl -s "$KEYS_URL" \
+            -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Length: 0")
+
+          STORAGE_KEY=$(echo "$KEYS_RESPONSE" | python3 -c "
+          import sys, json
+          try:
+              d = json.load(sys.stdin)
+              print(d['keys'][0]['value'])
+          except Exception as e:
+              print('', end='')
+              print(f'Key parse error: {e}', file=sys.stderr)
+          " 2>&1 | head -1)
+
+          if [ -z "$STORAGE_KEY" ] || [[ "$STORAGE_KEY" == *"error"* ]] || [[ "$STORAGE_KEY" == *"Error"* ]]; then
+            echo "::error::Could not fetch storage account key via ARM REST API."
+            echo "ARM response: $(echo "$KEYS_RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error',{}).get('message','unknown'))" 2>/dev/null || echo "$KEYS_RESPONSE" | head -3)"
+            echo "Verify: storage account '$SA_NAME' exists in resource group '$RG' (subscription: $SUB)"
+            echo "Attempting inline deployment (may fail with HTTP 413 for large packages)..."
           else
             echo "::add-mask::$STORAGE_KEY"
-            echo "✅ Storage account key obtained"
+            echo "✅ Storage account key obtained via ARM"
           fi
 
-          # Build auth args for az storage commands
-          if [ -n "$STORAGE_KEY" ]; then
-            AUTH_ARGS=(--account-key "$STORAGE_KEY")
-          else
-            AUTH_ARGS=(--auth-mode login)
-          fi
-
-          # ── Ensure deployment blob container exists ──
-          echo "Ensuring container '${{ env.DEPLOYMENT_CONTAINER }}' exists..."
-          az storage container create \
-            --account-name "$SA_NAME" \
-            --name "${{ env.DEPLOYMENT_CONTAINER }}" \
-            "${AUTH_ARGS[@]}" \
-            --output none 2>&1 || echo "::warning::Container create failed (may already exist)"
-
-          # ── Upload package to blob storage ──
-          echo "Uploading func-package.zip to blob storage..."
-          UPLOAD_OUTPUT=""
-          if UPLOAD_OUTPUT=$(az storage blob upload \
-            --account-name "$SA_NAME" \
-            --container-name "${{ env.DEPLOYMENT_CONTAINER }}" \
-            --name "$BLOB_NAME" \
-            --file func-package.zip \
-            "${AUTH_ARGS[@]}" \
-            --overwrite \
-            --output none 2>&1); then
-
-            echo "✅ Blob upload succeeded"
-
-            EXPIRY=$(python3 -c "from datetime import datetime,timezone,timedelta; print((datetime.now(timezone.utc)+timedelta(hours=2)).strftime('%Y-%m-%dT%H:%MZ'))")
-            PACKAGE_URL=$(az storage blob generate-sas \
+          # ── 3. Create deployment container & upload blob ──
+          if [ -n "$STORAGE_KEY" ] && [[ "$STORAGE_KEY" != *"error"* ]]; then
+            echo "Ensuring container '${CONTAINER}' exists..."
+            az storage container create \
               --account-name "$SA_NAME" \
-              --container-name "${{ env.DEPLOYMENT_CONTAINER }}" \
+              --account-key "$STORAGE_KEY" \
+              --name "$CONTAINER" \
+              --output none 2>&1 || echo "::warning::Container create returned error (may already exist)"
+
+            echo "Uploading func-package.zip to blob ${SA_NAME}/${CONTAINER}/${BLOB_NAME}..."
+            if az storage blob upload \
+              --account-name "$SA_NAME" \
+              --account-key "$STORAGE_KEY" \
+              --container-name "$CONTAINER" \
               --name "$BLOB_NAME" \
-              --permissions r \
-              --expiry "$EXPIRY" \
-              --full-uri \
-              "${AUTH_ARGS[@]}" \
-              --output tsv)
-            echo "::add-mask::$PACKAGE_URL"
+              --file func-package.zip \
+              --overwrite \
+              --output none 2>&1; then
 
-            PACKAGE_JSON=$(printf '{"packageUri":"%s"}' "$PACKAGE_URL")
-            HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
-              --max-time 600 \
-              -X PUT \
-              -H "Authorization: Bearer $TOKEN" \
-              -H "Content-Type: application/json" \
-              --data-binary "$PACKAGE_JSON" \
-              "${DEPLOY_BASE}&type=url")
+              echo "✅ Blob upload succeeded"
 
-            if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
-              echo "✅ Deployment succeeded via URL (HTTP $HTTP_STATUS)"
-              DEPLOYED=true
+              EXPIRY=$(python3 -c "from datetime import datetime,timezone,timedelta; print((datetime.now(timezone.utc)+timedelta(hours=2)).strftime('%Y-%m-%dT%H:%MZ'))")
+              PACKAGE_URL=$(az storage blob generate-sas \
+                --account-name "$SA_NAME" \
+                --account-key "$STORAGE_KEY" \
+                --container-name "$CONTAINER" \
+                --name "$BLOB_NAME" \
+                --permissions r \
+                --expiry "$EXPIRY" \
+                --full-uri \
+                --output tsv)
+              echo "::add-mask::$PACKAGE_URL"
+
+              PACKAGE_JSON=$(printf '{"packageUri":"%s"}' "$PACKAGE_URL")
+              HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
+                --max-time 600 \
+                -X PUT \
+                -H "Authorization: Bearer $TOKEN" \
+                -H "Content-Type: application/json" \
+                --data-binary "$PACKAGE_JSON" \
+                "${DEPLOY_BASE}&type=url")
+
+              if [[ "$HTTP_STATUS" == "200" ]] || [[ "$HTTP_STATUS" == "202" ]]; then
+                echo "✅ Deployment succeeded via URL (HTTP $HTTP_STATUS)"
+                DEPLOYED=true
+              else
+                echo "::warning::URL-based deployment failed (HTTP $HTTP_STATUS) – falling back to inline upload"
+                cat /tmp/deploy-response.txt || true
+              fi
             else
-              echo "::warning::URL-based deployment failed (HTTP $HTTP_STATUS) – falling back to inline upload"
-              cat /tmp/deploy-response.txt || true
+              echo "::warning::Blob upload failed – falling back to inline zip deployment"
             fi
-          else
-            echo "::warning::Blob upload failed: $UPLOAD_OUTPUT"
-            echo "::warning::Falling back to inline zip deployment"
           fi
 
-          # Fall back to inline zip upload if URL-based deployment failed or was unavailable
+          # ── 4. Fallback: inline zip upload ──
           if [[ "$DEPLOYED" != "true" ]]; then
-            echo "Package size: $(du -h func-package.zip | cut -f1)"
+            echo "Attempting inline zip deployment..."
             HTTP_STATUS=$(curl -s -o /tmp/deploy-response.txt -w "%{http_code}" \
               --max-time 600 \
               -X PUT \
@@ -599,7 +612,11 @@ jobs:
             if [[ "$HTTP_STATUS" != "200" ]] && [[ "$HTTP_STATUS" != "202" ]]; then
               echo "::error::Deployment failed with HTTP $HTTP_STATUS"
               cat /tmp/deploy-response.txt || true
-              echo "::error::Both blob-based and inline deployments failed. Check SP permissions (Contributor + Storage Blob Data Contributor) and storage account network access."
+              echo "::error::Both blob-based and inline deployments failed."
+              echo "Troubleshooting:"
+              echo "  1. Verify storage account '$SA_NAME' exists: az storage account show --name $SA_NAME --resource-group $RG"
+              echo "  2. Ensure SP has Contributor role on RG '$RG'"
+              echo "  3. Run 'Deploy Infrastructure' workflow if resources are not yet provisioned"
               exit 1
             fi
             echo "✅ Deployment succeeded via inline upload (HTTP $HTTP_STATUS)"
