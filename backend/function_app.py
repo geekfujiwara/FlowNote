@@ -622,7 +622,7 @@ async def admin_analytics_users(req: func.HttpRequest) -> func.HttpResponse:
 
         # ユーザーごとの活動集計 (90日)
         kql_users = """
-union customEvents, pageViews
+union isfuzzy=true customEvents, pageViews
 | where timestamp > ago(90d)
 | where isnotempty(user_AuthenticatedId)
 | summarize
@@ -642,7 +642,7 @@ union customEvents, pageViews
 
         # ユーザーごとの30日間日別イベント数 (スパークライン用)
         kql_daily = """
-union customEvents, pageViews
+union isfuzzy=true customEvents, pageViews
 | where timestamp > ago(30d)
 | where isnotempty(user_AuthenticatedId)
 | summarize count() by user_AuthenticatedId, day = format_datetime(bin(timestamp, 1d), 'yyyy-MM-dd')
