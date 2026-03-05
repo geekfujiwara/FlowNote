@@ -477,10 +477,19 @@ jobs:
           FA="$(echo -n "${{ env.FUNCTION_APP_NAME }}" | tr -d '[:space:]')"
           RG="$(echo -n "${{ env.RESOURCE_GROUP }}" | tr -d '[:space:]')"
           SUB="$(echo -n "${{ env.SUBSCRIPTION_ID }}" | tr -d '[:space:]')"
-          SCM_HOST="${FA}.scm.azurewebsites.net"
 
           echo "Function App name length: ${#FA}"
-          echo "SCM host: ${SCM_HOST}"
+          # Debug: show hex of first 4 and last 4 chars to detect corruption
+          echo "FA first4: $(echo -n "$FA" | head -c4 | xxd -p)"
+          echo "FA last4:  $(echo -n "$FA" | tail -c4 | xxd -p)"
+
+          # Construct SCM host; also prepare Bicep-derived fallback
+          SCM_HOST="${FA}.scm.azurewebsites.net"
+          BICEP_FA="flownote-prod-func"
+          BICEP_SCM_HOST="${BICEP_FA}.scm.azurewebsites.net"
+
+          echo "Constructed SCM host: ${SCM_HOST}"
+          echo "Bicep-derived SCM host: ${BICEP_SCM_HOST}"
           echo "Package size: $(du -h func-package.zip | cut -f1)"
 
           # ── Resolve SCM credentials ──
@@ -508,60 +517,56 @@ jobs:
           fi
 
           if [ -z "$AUTH_USER" ] || [ -z "$AUTH_PASS" ]; then
-            echo "::error::No SCM credentials available. Set AZURE_FUNCTIONAPP_SCM_USER and AZURE_FUNCTIONAPP_SCM_PASS secrets, or grant the SP Microsoft.Web/sites/config/list/Action."
-            echo "To get SCM credentials manually:"
-            echo "  az functionapp deployment list-publishing-credentials --name $FA --resource-group $RG --subscription $SUB"
+            echo "::error::No SCM credentials available."
             exit 1
           fi
 
           echo "::add-mask::$AUTH_USER"
           echo "::add-mask::$AUTH_PASS"
 
-          # ── DNS resolution with fallback ──
+          # ── DNS resolution: try constructed hostname, fall back to Bicep name ──
           echo "=== DNS Resolution ==="
-          RESOLVE_FLAG=""
+          FINAL_SCM_HOST=""
+          RESOLVED_IP=""
           set +e
-
-          # Try system resolver first
-          echo "1) System resolver (nslookup):"
-          nslookup "${SCM_HOST}" 2>&1 | head -8
-          SYS_DNS_OK=$?
-
-          if [ $SYS_DNS_OK -ne 0 ]; then
-            echo "::warning::System DNS failed. Trying Google DNS (8.8.8.8)..."
-
-            # Try dig with Google DNS
+          for TRY_HOST in "$SCM_HOST" "$BICEP_SCM_HOST"; do
+            echo "Trying DNS for: ${TRY_HOST}..."
+            # Use dig with Google DNS for reliable cross-region resolution
+            IP=""
             if command -v dig &>/dev/null; then
-              echo "2) dig @8.8.8.8:"
-              SCM_IP=$(dig +short @8.8.8.8 "${SCM_HOST}" A 2>/dev/null | grep -E '^[0-9]+\.' | tail -1)
+              IP=$(dig +short @8.8.8.8 "${TRY_HOST}" A 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
             fi
-
-            # Try host command as another fallback
-            if [ -z "${SCM_IP:-}" ] && command -v host &>/dev/null; then
-              echo "3) host command @8.8.8.8:"
-              SCM_IP=$(host "${SCM_HOST}" 8.8.8.8 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | tail -1)
+            if [ -z "$IP" ]; then
+              # Fallback: nslookup against Google DNS, parse answer section only
+              IP=$(nslookup "${TRY_HOST}" 8.8.8.8 2>/dev/null | awk '/^Address:/ && !/8\.8\.8\.8/ && !/#/ {gsub(/^Address:[[:space:]]+/,""); print}' | head -1)
             fi
-
-            # Try getent as last resort
-            if [ -z "${SCM_IP:-}" ]; then
-              echo "4) getent ahosts:"
-              SCM_IP=$(getent ahosts "${SCM_HOST}" 2>/dev/null | head -1 | awk '{print $1}')
-            fi
-
-            if [ -n "${SCM_IP:-}" ]; then
-              echo "✅ Resolved ${SCM_HOST} → ${SCM_IP} (via alternative DNS)"
-              RESOLVE_FLAG="--resolve ${SCM_HOST}:443:${SCM_IP}"
+            if [ -n "$IP" ] && [ "$IP" != "8.8.8.8" ] && [ "$IP" != "8.8.4.4" ]; then
+              echo "✅ ${TRY_HOST} → ${IP}"
+              FINAL_SCM_HOST="$TRY_HOST"
+              RESOLVED_IP="$IP"
+              break
             else
-              echo "::warning::All DNS methods failed for ${SCM_HOST}"
-              # Last resort: try curl anyway – it may use a different resolver
+              echo "❌ ${TRY_HOST} did not resolve (IP=${IP:-empty})"
             fi
-          else
-            echo "✅ System DNS resolved ${SCM_HOST}"
-          fi
+          done
           set -e
 
+          # If no DNS resolution at all, use Bicep-derived hostname without --resolve
+          if [ -z "$FINAL_SCM_HOST" ]; then
+            echo "::warning::DNS resolution failed for all hostnames. Trying curl with Bicep hostname..."
+            FINAL_SCM_HOST="$BICEP_SCM_HOST"
+            RESOLVED_IP=""
+          fi
+
+          # Build curl resolve flag
+          RESOLVE_FLAG=""
+          if [ -n "${RESOLVED_IP:-}" ]; then
+            RESOLVE_FLAG="--resolve ${FINAL_SCM_HOST}:443:${RESOLVED_IP}"
+            echo "Using --resolve ${FINAL_SCM_HOST}:443:${RESOLVED_IP}"
+          fi
+
           # ── Deploy via SCM /api/publish ──
-          DEPLOY_URL="https://${SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
+          DEPLOY_URL="https://${FINAL_SCM_HOST}/api/publish?type=zip&RemoteBuild=false"
           echo "Deploying to: ${DEPLOY_URL}"
 
           set +e
@@ -580,7 +585,7 @@ jobs:
           if [ $CURL_EXIT -ne 0 ]; then
             echo "::warning::curl /api/publish exited with code $CURL_EXIT"
             echo "Trying /api/zipdeploy endpoint as fallback..."
-            DEPLOY_URL2="https://${SCM_HOST}/api/zipdeploy?isAsync=false"
+            DEPLOY_URL2="https://${FINAL_SCM_HOST}/api/zipdeploy?isAsync=false"
             set +e
             HTTP_STATUS=$(curl -sS -o /tmp/deploy-response.json -w "%{http_code}" \
               ${RESOLVE_FLAG} \
@@ -594,9 +599,7 @@ jobs:
             CURL_EXIT=$?
             set -e
             if [ $CURL_EXIT -ne 0 ]; then
-              echo "::error::curl failed with exit code $CURL_EXIT for both /api/publish and /api/zipdeploy"
-              echo "SCM_HOST=${SCM_HOST} | FA length=${#FA} | RESOLVE_FLAG=${RESOLVE_FLAG:-none}"
-              echo "Check: 1) Function App exists 2) SCM endpoint is accessible 3) DNS can resolve the hostname"
+              echo "::error::curl failed (exit $CURL_EXIT). HOST=${FINAL_SCM_HOST} FA_LEN=${#FA} IP=${RESOLVED_IP:-none}"
               exit 1
             fi
           fi
@@ -609,10 +612,6 @@ jobs:
           else
             echo "::error::Deployment failed (HTTP $HTTP_STATUS)"
             cat /tmp/deploy-response.json 2>/dev/null || true
-            echo "Troubleshooting:"
-            echo "  1. Ensure Function App '$FA' exists and is running"
-            echo "  2. Check SCM credentials are valid (re-fetch from Azure Portal)"
-            echo "  3. Check if storage public network access is disabled"
             exit 1
           fi
 
